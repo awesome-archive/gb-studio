@@ -1,8 +1,10 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import { connect } from "react-redux";
 import FilesSidebar from "../../components/assets/FilesSidebar";
 import ImageViewer from "../../components/assets/ImageViewer";
 import * as actions from "../../actions";
+import { getSpriteSheets } from "../../reducers/entitiesReducer";
 
 class SpritesPage extends Component {
   constructor(props) {
@@ -19,27 +21,27 @@ class SpritesPage extends Component {
   };
 
   render() {
-    const { files, id } = this.props;
+    const { files, id, openHelp } = this.props;
     const { query } = this.state;
 
     const filesList = query
-      ? files.filter(file => {
-          return file.name.toUpperCase().indexOf(query.toUpperCase()) > -1;
+      ? files.filter(f => {
+          return f.name.toUpperCase().indexOf(query.toUpperCase()) > -1;
         })
       : files;
 
-    const file = filesList.find(file => file.id === id) || filesList[0];
+    const file = filesList.find(f => f.id === id) || filesList[0];
 
     return (
       <div>
-        <ImageViewer file={file} />
+        {file && <ImageViewer file={file} />}
         <FilesSidebar
           files={filesList}
           selectedFile={file}
           query={query}
           onSearch={this.onSearch}
           onAdd={() => {
-            this.props.openHelp("sprites");
+            openHelp("sprites");
           }}
         />
       </div>
@@ -47,12 +49,24 @@ class SpritesPage extends Component {
   }
 }
 
+SpritesPage.propTypes = {
+  id: PropTypes.string,
+  files: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string.isRequired,
+      name: PropTypes.string.isRequired
+    })
+  ).isRequired,
+  openHelp: PropTypes.func.isRequired
+};
+
+SpritesPage.defaultProps = {
+  id: ""
+};
+
 function mapStateToProps(state) {
   const { id } = state.navigation;
-  const files =
-    state.project.present && state.project.present.spriteSheets
-      ? state.project.present.spriteSheets
-      : [];
+  const files = getSpriteSheets(state);
   return {
     files,
     id

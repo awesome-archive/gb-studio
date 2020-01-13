@@ -11,9 +11,18 @@ extern UBYTE script_cmd_args[6];
 extern UBYTE script_cmd_args_len;
 
 extern UWORD script_ptr;
+extern UWORD script_ptr_x;
+extern UWORD script_ptr_y;
 extern UBYTE script_action_complete;
 extern UBYTE script_continue;
 extern UBYTE script_actor;
+
+// Max call stack depth
+#define STACK_SIZE 8
+extern UWORD script_stack[STACK_SIZE];
+extern UBYTE script_bank_stack[STACK_SIZE];
+extern UWORD script_start_stack[STACK_SIZE];
+extern UBYTE script_stack_ptr;
 
 void ScriptStart(BANK_PTR *events_ptr);
 void ScriptRunnerUpdate();
@@ -60,5 +69,57 @@ void Script_Choice_b();
 void Script_PlayerSetSprite_b();
 void Script_ActorPush_b();
 void Script_IfActorPos_b();
+void Script_LoadData_b();
+void Script_SaveData_b();
+void Script_ClearData_b();
+void Script_IfSavedData_b();
+void Script_IfActorDirection_b();
+void Script_SetFlagRandomValue_b();
+void Script_ActorGetPos_b();
+void Script_ActorSetPosToVal_b();
+void Script_ActorMoveToVal_b();
+void Script_ActorMoveRel_b();
+void Script_ActorSetPosRel_b();
+void Script_MathAdd_b();
+void Script_MathSub_b();
+void Script_MathMul_b();
+void Script_MathDiv_b();
+void Script_MathMod_b();
+void Script_MathAddVal_b();
+void Script_MathSubVal_b();
+void Script_MathMulVal_b();
+void Script_MathDivVal_b();
+void Script_MathModVal_b();
+void Script_CopyVal_b();
+void Script_IfValueCompare_b();
+void Script_LoadVectors_b();
+void Script_ActorSetMoveSpeed_b();
+void Script_ActorSetAnimSpeed_b();
+void Script_TextSetAnimSpeed_b();
+void Script_ScenePushState_b();
+void Script_ScenePopState_b();
+void Script_ActorInvoke_b();
+void Script_StackPush_b();
+void Script_StackPop_b();
+void Script_SceneResetStack_b();
+void Script_ScenePopAllState_b();
+void Script_SetInputScript_b();
+void Script_RemoveInputScript_b();
+void Script_ActorSetFrame_b();
+void Script_ActorSetFlip_b();
+void Script_TextMulti_b();
+void Script_ActorSetFrameToVal_b();
+void Script_VariableAddFlags_b();
+void Script_VariableClearFlags_b();
+void Script_SoundStartTone_b();
+void Script_SoundStopTone_b();
+void Script_SoundPlayBeep_b();
+void Script_SoundPlayCrash_b();
+void Script_SetTimerScript_b();
+void Script_ResetTimer_b();
+void Script_RemoveTimerScript_b();
+void Script_TextWithAvatar_b();
+void Script_TextMenu_b();
+void Script_ActorSetCollisions_b();
 
 #endif

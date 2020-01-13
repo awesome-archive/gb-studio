@@ -1,4 +1,5 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 
 const TILE_SIZE = 8;
 
@@ -21,7 +22,7 @@ class SceneCollisions extends Component {
     if (this.canvas.current) {
       this.canvas.current.width = this.canvas.current.width; // Clear canvas
       const ctx = this.canvas.current.getContext("2d");
-      ctx.fillStyle = "rgba(255,0,0,0.6)";
+      ctx.fillStyle = "rgba(250,40,40,0.6)";
       for (let yi = 0; yi < height; yi++) {
         for (let xi = 0; xi < width; xi++) {
           const collisionIndex = width * yi + xi;
@@ -51,5 +52,11 @@ class SceneCollisions extends Component {
     );
   }
 }
+
+SceneCollisions.propTypes = {
+  width: PropTypes.number.isRequired,
+  height: PropTypes.number.isRequired,
+  collisions: PropTypes.arrayOf(PropTypes.number).isRequired
+};
 
 export default SceneCollisions;

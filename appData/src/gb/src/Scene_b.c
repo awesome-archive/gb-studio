@@ -29,6 +29,9 @@ UWORD scene_load_col_ptr;
 UBYTE collision_tiles_len, col_bank;
 BANK_PTR events_ptr;
 BANK_PTR bank_ptr;
+UBYTE check_triggers;
+UBYTE scene_loaded;
+UBYTE scene_input_ready;
 // End of Scene Init Globals
 
 UBYTE scene_num_actors;
@@ -46,6 +49,7 @@ const VEC2D dir_right = {1, 0};
 const VEC2D dir_none = {0, 0};
 VEC2D *directions[5] = {&dir_up, &dir_down, &dir_left, &dir_right, &dir_none};
 VEC2D *update_dir;
+UBYTE last_joy;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Private functions
@@ -53,7 +57,7 @@ VEC2D *update_dir;
 
 static void SceneHandleInput();
 void SceneRender();
-UBYTE SceneNpcAt_b(UBYTE index, UBYTE tx_a, UBYTE ty_a);
+UBYTE SceneNpcAt_b(UBYTE index, UBYTE tx_a, UBYTE ty_a, UBYTE inc_noclip);
 UBYTE ScenePlayerAt_b(UBYTE tx_a, UBYTE ty_a);
 UBYTE SceneTriggerAt_b(UBYTE tx_a, UBYTE ty_a);
 void SceneUpdateActors_b();
@@ -62,12 +66,14 @@ void SceneUpdateCameraShake_b();
 void SceneUpdateEmoteBubble_b();
 void SceneHandleTriggers_b();
 void SceneRenderActors_b();
+void SceneRenderActor_b(UBYTE i);
 void SceneRenderEmoteBubble_b();
 void SceneRenderCameraShake_b();
 void SceneUpdateActorMovement_b(UBYTE i);
 void SceneSetEmote_b(UBYTE actor, UBYTE type);
 void SceneHandleWait();
 void SceneHandleTransition();
+void SceneUpdateTimer_b();
 
 ////////////////////////////////////////////////////////////////////////////////
 // Initialise
@@ -77,11 +83,14 @@ void SceneInit_b1()
 {
   DISPLAY_OFF;
 
+  scene_loaded = FALSE;
+  scene_input_ready = FALSE;
+
   SpritesReset();
   UIInit();
 
-  SCX_REG = 0;
-  SCY_REG = 0;
+  scroll_x = 0;
+  scroll_y = 0;
   WX_REG = MAXWNDPOSX;
   WY_REG = MAXWNDPOSY;
 
@@ -127,23 +136,40 @@ void SceneInit_b2()
     // LOG("LOAD ACTOR %u\n", i);
     actors[i].sprite = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr);
     // LOG("ACTOR_SPRITE=%u\n", actors[i].sprite);
-    actors[i].redraw = TRUE;
     actors[i].enabled = TRUE;
+    actors[i].collisionsEnabled = TRUE;
     actors[i].moving = FALSE;
     actors[i].sprite_type = FALSE; // WTF needed
     actors[i].sprite_type = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 1);
-    actors[i].pos.x = MUL_8(ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 2)) + 8;
-    actors[i].pos.y = MUL_8(ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 3)) + 8;
-    j = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 4);
+    actors[i].frames_len = 0;
+    actors[i].frames_len = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 2);
+    actors[i].animate = FALSE;
+    actors[i].frame_offset = 0;
+    actors[i].flip = FALSE;
+    actors[i].animate = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 3) & 1;
+    actors[i].frame = 0;
+    actors[i].frame = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 3) >> 1;
+    actors[i].move_speed = 0;
+    actors[i].anim_speed = 0;
+
+    actors[i].pos.x = MUL_8(ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 4)) + 8;
+    actors[i].pos.y = MUL_8(ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 5)) + 8;
+    j = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 6);
     actors[i].dir.x = j == 2 ? -1 : j == 4 ? 1 : 0;
     actors[i].dir.y = j == 8 ? -1 : j == 1 ? 1 : 0;
+
     actors[i].movement_type = 0; // WTF needed
-    actors[i].movement_type = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 5);
+    actors[i].movement_type = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 7);
+
+    actors[i].move_speed = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 8);
+    actors[i].anim_speed = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 9);
+
     // LOG("ACTOR_POS [%u,%u]\n", actors[i].pos.x, actors[i].pos.y);
-    actors[i].events_ptr.bank = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 6);
-    actors[i].events_ptr.offset = (ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 7) * 256) + ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 8);
+    actors[i].events_ptr.bank = ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 10);
+    actors[i].events_ptr.offset = (ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 11) * 256) + ReadBankedUBYTE(bank_ptr.bank, scene_load_ptr + 12);
+
     // LOG("ACTOR_EVENT_PTR BANK=%u OFFSET=%u\n", actors[i].events_ptr.bank, actors[i].events_ptr.offset);
-    scene_load_ptr = scene_load_ptr + 9u;
+    scene_load_ptr = scene_load_ptr + 13u;
   }
 
   // Load triggers
@@ -172,15 +198,43 @@ void SceneInit_b2()
 
 void SceneInit_b3()
 {
-  // There used to be code here
+  // Init player
+  actors[0].enabled = TRUE;
+  actors[0].moving = FALSE;
+  actors[0].collisionsEnabled = TRUE;
+  actors[0].pos.x = map_next_pos.x;
+  actors[0].pos.y = map_next_pos.y;
+  actors[0].dir.x = map_next_dir.x;
+  actors[0].dir.y = map_next_dir.y;
 }
 
 void SceneInit_b4()
 {
+  UBYTE i;
+  for (i = 1; i != scene_num_actors; ++i)
+  {
+    SceneRenderActor_b(i);
+  }
 }
 
 void SceneInit_b5()
 {
+  BANK_PTR sprite_bank_ptr;
+  UWORD sprite_ptr;
+  UBYTE sprite_frames, sprite_len;
+
+  // Load Player Sprite
+  ReadBankedBankPtr(DATA_PTRS_BANK, &sprite_bank_ptr, &sprite_bank_ptrs[map_next_sprite]);
+  sprite_ptr = ((UWORD)bank_data_ptrs[sprite_bank_ptr.bank]) + sprite_bank_ptr.offset;
+  sprite_frames = ReadBankedUBYTE(sprite_bank_ptr.bank, sprite_ptr);
+  sprite_len = MUL_4(sprite_frames);
+  SetBankedSpriteData(sprite_bank_ptr.bank, 0, sprite_len, sprite_ptr + 1);
+  actors[0].sprite = 0;
+  actors[0].frame = 0;
+  actors[0].animate = FALSE;
+  actors[0].sprite_type = sprite_frames == 6 ? SPRITE_ACTOR_ANIMATED : sprite_frames == 3 ? SPRITE_ACTOR : SPRITE_STATIC;
+  actors[0].frames_len = sprite_frames == 6 ? 2 : sprite_frames == 3 ? 1 : sprite_frames;
+  SceneRenderActor_b(0);
 }
 
 void SceneInit_b6()
@@ -225,15 +279,6 @@ void SceneInit_b9()
 {
   UBYTE i;
 
-  // Init player
-  actors[0].redraw = TRUE;
-  actors[0].enabled = TRUE;
-  actors[0].moving = FALSE;
-  actors[0].pos.x = map_next_pos.x;
-  actors[0].pos.y = map_next_pos.y;
-  actors[0].dir.x = map_next_dir.x;
-  actors[0].dir.y = map_next_dir.y;
-
   // Init start script
   ReadBankedBankPtr(DATA_PTRS_BANK, &bank_ptr, &scene_bank_ptrs[scene_index]);
   events_ptr.bank = ReadBankedUBYTE(bank_ptr.bank, (UWORD)scene_load_col_ptr);
@@ -251,13 +296,17 @@ void SceneInit_b9()
   camera_settings = CAMERA_LOCK_FLAG;
 
   SceneUpdateCamera_b();
-  actors[0].moving = TRUE;
+  check_triggers = TRUE;
   SceneHandleTriggers_b();
-  actors[0].moving = FALSE;
 
   FadeIn();
 
   time = 0;
+  last_joy = 0;
+  scene_loaded = TRUE;
+
+  // Disable timer script
+  timer_script_duration = 0;
 
   SHOW_SPRITES;
   DISPLAY_ON;
@@ -269,16 +318,17 @@ void SceneInit_b9()
 
 void SceneUpdate_b()
 {
+  SceneUpdateCameraShake_b();
+  SceneUpdateCamera_b();
+  SceneRender();
+  SceneUpdateTimer_b();
   SceneHandleInput();
   ScriptRunnerUpdate();
   SceneUpdateActors_b();
   SceneUpdateEmoteBubble_b();
-  SceneUpdateCameraShake_b();
   SceneHandleWait();
   SceneHandleTransition();
   UIUpdate();
-  SceneUpdateCamera_b();
-  SceneRender();
   SceneHandleTriggers_b();
 }
 
@@ -319,7 +369,7 @@ void SceneUpdateCamera_b()
     camera_dest.y = cam_y - SCREEN_HEIGHT_HALF;
   }
 
-  camera_moved = SCX_REG != camera_dest.x || SCY_REG != camera_dest.y;
+  camera_moved = scroll_x != camera_dest.x || scroll_y != camera_dest.y;
 
   if (camera_moved)
   {
@@ -328,42 +378,48 @@ void SceneUpdateCamera_b()
     {
       if ((time & camera_speed) == 0)
       {
-        if (SCX_REG > camera_dest.x)
+        if (scroll_x > camera_dest.x)
         {
-          SCX_REG--;
+          scroll_x--;
         }
-        else if (SCX_REG < camera_dest.x)
+        else if (scroll_x < camera_dest.x)
         {
-          SCX_REG++;
+          scroll_x++;
         }
-        if (SCY_REG > camera_dest.y)
+        if (scroll_y > camera_dest.y)
         {
-          SCY_REG--;
+          scroll_y--;
         }
-        else if (SCY_REG < camera_dest.y)
+        else if (scroll_y < camera_dest.y)
         {
-          SCY_REG++;
+          scroll_y++;
         }
       }
     }
     // Otherwise jump imediately to camera destination
     else
     {
-      SCX_REG = camera_dest.x;
-      SCY_REG = camera_dest.y;
+      scroll_x = camera_dest.x;
+      scroll_y = camera_dest.y;
     }
   }
 }
 
 void SceneUpdateActors_b()
 {
-  UBYTE i, len;
+  UBYTE i, len, jump;
   BYTE r;
+  UBYTE *ptr;
+
+  jump = sizeof(ACTOR);
 
   // Handle script move
-  if (actor_move_settings & ACTOR_MOVE_ENABLED && ((actors[script_actor].pos.x & 7) == 0) && ((actors[script_actor].pos.y & 7) == 0))
+  if (actor_move_settings & ACTOR_MOVE_ENABLED && ACTOR_ON_TILE(script_actor))
   {
-    if (actors[script_actor].pos.x == actor_move_dest.x && actors[script_actor].pos.y == actor_move_dest.y)
+    if (actors[script_actor].pos.x == actor_move_dest.x &&
+        ((actors[script_actor].pos.y == actor_move_dest.y) ||
+         // If destination is bottom edge check if wrapped around scene
+         (actors[script_actor].pos.y == 0 && actor_move_dest.y == ACTOR_MAX_Y)))
     {
       actor_move_settings &= ~ACTOR_MOVE_ENABLED;
       script_action_complete = TRUE;
@@ -425,26 +481,8 @@ void SceneUpdateActors_b()
           if (actors[i].movement_type == AI_RANDOM_FACE)
           {
             memcpy(&actors[i].dir, directions[r & 3], sizeof(POS));
-            actors[i].redraw = TRUE;
-            actors[i].moving = FALSE;
+            SceneRenderActor_b(i);
             ++r;
-          }
-          else if (actors[i].movement_type == AI_ROTATE_TRB)
-          {
-            if (actors[i].dir.y == -1)
-            {
-              memcpy(&actors[i].dir, directions[3], sizeof(POS));
-            }
-            else if (actors[i].dir.y == 1)
-            {
-              memcpy(&actors[i].dir, directions[0], sizeof(POS));
-            }
-            else if (actors[i].dir.y == 0)
-            {
-              memcpy(&actors[i].dir, directions[1], sizeof(POS));
-            }
-            actors[i].redraw = TRUE;
-            actors[i].moving = FALSE;
           }
           else if (actors[i].movement_type == AI_RANDOM_WALK)
           {
@@ -470,26 +508,8 @@ void SceneUpdateActors_b()
           if (actors[i].movement_type == AI_RANDOM_FACE)
           {
             memcpy(&actors[i].dir, directions[r & 3], sizeof(POS));
-            actors[i].redraw = TRUE;
-            actors[i].moving = FALSE;
+            SceneRenderActor_b(i);
             ++r;
-          }
-          else if (actors[i].movement_type == AI_ROTATE_TRB)
-          {
-            if (actors[i].dir.y == -1)
-            {
-              memcpy(&actors[i].dir, directions[3], sizeof(POS));
-            }
-            else if (actors[i].dir.y == 1)
-            {
-              memcpy(&actors[i].dir, directions[0], sizeof(POS));
-            }
-            else if (actors[i].dir.y == 0)
-            {
-              memcpy(&actors[i].dir, directions[1], sizeof(POS));
-            }
-            actors[i].redraw = TRUE;
-            actors[i].moving = FALSE;
           }
           else if (actors[i].movement_type == AI_RANDOM_WALK)
           {
@@ -500,41 +520,107 @@ void SceneUpdateActors_b()
         }
       }
     }
-    else if ((time == 8) || (time == 72) || (time == 136) || (time == 200))
+    else
     {
+      ptr = actors;
+      ptr += jump;
       for (i = 1; i != scene_num_actors; i++)
       {
-        actors[i].moving = FALSE;
+        if (ACTOR_MOVING(ptr) && ACTOR_ON_TILE(i))
+        {
+          ACTOR_MOVING(ptr) = FALSE;
+        }
+        ptr += jump;
       }
     }
   }
 
-  // Is frame where npc would move
-  if (((time & 7) && !(time & 56)) || ((time & 0x3F) == 0))
+  ptr = actors;
+  len = scene_num_actors;
+
+  if (script_ptr != 0)
   {
-    len = scene_num_actors;
+    for (i = 0; i != script_actor; ++i)
+    {
+      ptr += jump;
+    }
+    // Move actors
+    if (ACTOR_MOVING(ptr))
+    {
+      if (ACTOR_MOVE_SPEED(ptr) == 0)
+      {
+        if (IS_FRAME_2)
+        {
+          ACTOR_X(ptr) = ACTOR_X(ptr) + ACTOR_DX(ptr);
+          ACTOR_Y(ptr) = ACTOR_Y(ptr) + ACTOR_DY(ptr);
+        }
+      }
+      else
+      {
+        ACTOR_X(ptr) = ACTOR_X(ptr) + ACTOR_DX(ptr) * ACTOR_MOVE_SPEED(ptr);
+        ACTOR_Y(ptr) = ACTOR_Y(ptr) + ACTOR_DY(ptr) * ACTOR_MOVE_SPEED(ptr);
+      }
+      // Handle Y wrapping
+      if (ACTOR_DY(ptr) == 1 && LT_8(ACTOR_Y(ptr)))
+      {
+        ACTOR_Y(ptr) = ACTOR_MAX_Y;
+      }
+    }
   }
   else
   {
-    // Else only move player
-    len = 1;
-
-    // Move script actor
-    if (script_ptr != 0 && script_actor != 0 && actors[script_actor].moving)
+    for (i = 0; i != len; ++i)
     {
       // Move actors
-      actors[script_actor].pos.x += actors[script_actor].dir.x;
-      actors[script_actor].pos.y += actors[script_actor].dir.y;
+      if (ACTOR_MOVING(ptr))
+      {
+        if (ACTOR_MOVE_SPEED(ptr) == 0)
+        {
+          if (IS_FRAME_2)
+          {
+            ACTOR_X(ptr) = ACTOR_X(ptr) + ACTOR_DX(ptr);
+            ACTOR_Y(ptr) = ACTOR_Y(ptr) + ACTOR_DY(ptr);
+          }
+        }
+        else
+        {
+          ACTOR_X(ptr) = ACTOR_X(ptr) + ACTOR_DX(ptr) * ACTOR_MOVE_SPEED(ptr);
+          ACTOR_Y(ptr) = ACTOR_Y(ptr) + ACTOR_DY(ptr) * ACTOR_MOVE_SPEED(ptr);
+        }
+        // Handle Y wrapping
+        if (ACTOR_DY(ptr) == 1 && LT_8(ACTOR_Y(ptr)))
+        {
+          ACTOR_Y(ptr) = ACTOR_MAX_Y;
+        }
+      }
+      ptr += jump;
     }
   }
 
-  for (i = 0; i != len; ++i)
+  // Cycle through animation frames
+  if (IS_FRAME_8)
   {
-    // Move actors
-    if (actors[i].moving)
+    len = scene_num_actors;
+    ptr = actors;
+
+    for (i = 0; i != len; ++i)
     {
-      actors[i].pos.x += actors[i].dir.x;
-      actors[i].pos.y += actors[i].dir.y;
+      if (ACTOR_ANIM_SPEED(ptr) == 4 || (ACTOR_ANIM_SPEED(ptr) == 3 && IS_FRAME_16) || (ACTOR_ANIM_SPEED(ptr) == 2 && IS_FRAME_32) || (ACTOR_ANIM_SPEED(ptr) == 1 && IS_FRAME_64) || (ACTOR_ANIM_SPEED(ptr) == 0 && IS_FRAME_128))
+      {
+        if ((ACTOR_MOVING(ptr) && actors[i].sprite_type != SPRITE_STATIC) || ACTOR_ANIMATE(ptr))
+        {
+          if (ACTOR_FRAME(ptr) == ACTOR_FRAMES_LEN(ptr) - 1)
+          {
+            ACTOR_FRAME(ptr) = 0;
+          }
+          else
+          {
+            ACTOR_FRAME(ptr) = ACTOR_FRAME(ptr) + 1;
+          }
+        }
+      }
+
+      ptr += jump;
     }
   }
 }
@@ -547,11 +633,15 @@ void SceneUpdateActorMovement_b(UBYTE i)
 
   memcpy(&actors[i].dir, update_dir, sizeof(POS));
 
-  actors[i].redraw = TRUE;
+  SceneRenderActor_b(i);
 
   // Dont check collisions when running script
   if (script_ptr != 0 && (actor_move_settings & ACTOR_NOCLIP))
   {
+    if (i == 0)
+    {
+      check_triggers = TRUE;
+    }
     actors[i].moving = TRUE;
     return;
   }
@@ -560,55 +650,131 @@ void SceneUpdateActorMovement_b(UBYTE i)
   next_ty = DIV_8(actors[i].pos.y) + actors[i].dir.y;
 
   // Check for npc collisions
-  npc = SceneNpcAt_b(i, next_tx, next_ty);
-  if (npc != scene_num_actors)
+  if (actors[i].collisionsEnabled)
   {
-    actors[i].moving = FALSE;
-    return;
+    npc = SceneNpcAt_b(i, next_tx, next_ty, FALSE);
+    if (npc != scene_num_actors)
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
+
+    // Stop at left edge
+    if (actors[i].dir.x == -1 && next_tx == 0)
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
+
+    // Stop at right edge
+    if (actors[i].dir.x == 1 && next_tx == scene_width)
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
+
+    // Stop at top edge
+    if (actors[i].dir.y == -1 && next_ty == 0)
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
+
+    // Stop at bottom edge
+    if (actors[i].dir.y == 1 && (next_ty == (scene_height + 1) || actors[i].pos.y == ACTOR_MAX_Y))
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
+
+    // Check collisions on left tile
+    collision_index = ((UWORD)scene_width * (next_ty - 1)) + (next_tx - 1);
+    if (scene_col_tiles[collision_index >> 3] & (1 << (collision_index & 7)))
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
+
+    // Check collisions on right tile
+    collision_index = ((UWORD)scene_width * (next_ty - 1)) + (next_tx - 1) + 1;
+    if (scene_col_tiles[collision_index >> 3] & (1 << (collision_index & 7)))
+    {
+      actors[i].moving = FALSE;
+      return;
+    }
   }
 
-  // Check collisions on left tile
-  collision_index = ((UWORD)scene_width * (next_ty - 1)) + (next_tx - 1);
-  if (scene_col_tiles[collision_index >> 3] & (1 << (collision_index & 7)))
+  if (i == 0)
   {
-    actors[i].moving = FALSE;
-    return;
+    check_triggers = TRUE;
   }
-
-  // Check collisions on right tile
-  collision_index = ((UWORD)scene_width * (next_ty - 1)) + (next_tx - 1) + 1;
-  if (scene_col_tiles[collision_index >> 3] & (1 << (collision_index & 7)))
-  {
-    actors[i].moving = FALSE;
-    return;
-  }
-
-  // LOG("UPDATE ACTOR MOVEMENT %u\n", i);
   actors[i].moving = TRUE;
+}
+
+void SceneUpdateTimer_b()
+{
+  // Don't update timer when scene is loading
+  if (!scene_loaded || !scene_input_ready)
+  {
+    return;
+  }
+
+  // Don't update timer while script is running
+  if (script_ptr != 0 || fade_running)
+  {
+    return;
+  }
+
+  // Check if timer is enabled
+  if (timer_script_duration != 0)
+  {
+    if (timer_script_time == 0)
+    {
+      // Don't start script when actor is between tiles
+      if (!ACTOR_ON_TILE(0))
+      {
+        return;
+      }
+
+      last_joy = last_joy & 0xF0;
+      ScriptStart(&timer_script_ptr);
+
+      // Reset the countdown timer
+      timer_script_time = timer_script_duration;
+    }
+    else
+    {
+      // Timer tick every 16 frames
+      if ((time & 0x0F) == 0x00)
+      {
+        --timer_script_time;
+      }
+    }
+  }
 }
 
 void SceneHandleTriggers_b()
 {
   UBYTE trigger, trigger_tile_offset;
 
-  if (ACTOR_ON_TILE(0) || actors[0].pos.y == 254)
+  if (check_triggers && script_ptr == 0 && (ACTOR_ON_TILE(0)))
   {
-    if (actors[0].moving)
+    check_triggers = FALSE;
+
+    // If at bottom of map offset tile lookup by 1 (look at tile 32 rather than 31)
+    trigger_tile_offset = actors[0].pos.y == ACTOR_MAX_Y;
+
+    trigger =
+        SceneTriggerAt_b(DIV_8(actors[0].pos.x),
+                         trigger_tile_offset + DIV_8(actors[0].pos.y));
+
+    if (trigger != scene_num_triggers)
     {
-      // If at bottom of map offset tile lookup by 1 (look at tile 32 rather than 31)
-      trigger_tile_offset = actors[0].pos.y == 254;
-
-      trigger =
-          SceneTriggerAt_b(DIV_8(actors[0].pos.x),
-                           trigger_tile_offset + DIV_8(actors[0].pos.y));
-
-      if (trigger != scene_num_triggers)
-      {
-        // LOG("ON TRIGGER\n");
-        actors[0].moving = FALSE;
-        script_actor = 0;
-        ScriptStart(&triggers[trigger].events_ptr);
-      }
+      actors[0].moving = FALSE;
+      last_joy = last_joy & 240;
+      script_actor = 0;
+      ScriptStart(&triggers[trigger].events_ptr);
+      ScriptRunnerUpdate();
     }
   }
 }
@@ -654,8 +820,20 @@ void SceneUpdateEmoteBubble_b()
 
 static void SceneHandleInput()
 {
-  UBYTE next_tx, next_ty;
+  UBYTE next_tx, next_ty, input_index, input_joy;
   UBYTE npc;
+
+  // If scene hasn't finished loading prevent input
+  if (!scene_loaded || !scene_input_ready)
+  {
+    // If scene has loaded wait for all buttons
+    // to be released before allowing new input
+    if (scene_loaded)
+    {
+      scene_input_ready = (joy & 240) == 0;
+    }
+    return;
+  }
 
   // If menu open - check if A pressed to close
   UIOnInteract();
@@ -667,18 +845,40 @@ static void SceneHandleInput()
   }
 
   // Can't move while script is running
-  if (script_ptr != 0 || emote_timer != 0 || IsFading())
+  // (removed "emote_timer != 0" as it should only happen if script was set)
+  if (script_ptr != 0 || fade_running)
   {
     actors[0].moving = FALSE;
     return;
   }
 
+  if (joy != 0 && joy != last_joy)
+  {
+    input_index = 0;
+    input_joy = joy;
+    for (input_index = 0; input_index != 8; ++input_index)
+    {
+      if (input_joy & 1)
+      {
+        if (input_script_ptrs[input_index].bank)
+        {
+          actors[0].moving = FALSE;
+          last_joy = joy;
+          ScriptStart(&input_script_ptrs[input_index]);
+          return;
+        }
+      }
+      input_joy = input_joy >> 1;
+    }
+  }
+
   if (JOY_PRESSED(J_A))
   {
+    last_joy = joy;
     actors[0].moving = FALSE;
     next_tx = DIV_8(actors[0].pos.x) + actors[0].dir.x;
     next_ty = DIV_8(actors[0].pos.y) + actors[0].dir.y;
-    npc = SceneNpcAt_b(0, next_tx, next_ty);
+    npc = SceneNpcAt_b(0, next_tx, next_ty, TRUE);
     if (npc != scene_num_actors)
     {
       actors[0].moving = FALSE;
@@ -688,13 +888,15 @@ static void SceneHandleInput()
         actors[npc].dir.y = -actors[0].dir.y;
       }
       actors[npc].moving = FALSE;
-      actors[npc].redraw = TRUE;
+      SceneRenderActor_b(npc);
       script_actor = npc;
       ScriptStart(&actors[npc].events_ptr);
     }
   }
-  else if (IS_FRAME_4)
+  else if ((actors[0].moving || joy != last_joy))
   {
+    last_joy = joy;
+
     if (JOY(J_LEFT))
     {
       update_dir = &dir_left;
@@ -727,9 +929,9 @@ static void SceneHandleInput()
 
 void SceneRender()
 {
+  SceneRenderCameraShake_b();
   SceneRenderActors_b();
   SceneRenderEmoteBubble_b();
-  SceneRenderCameraShake_b();
 }
 
 void SceneRenderCameraShake_b()
@@ -737,146 +939,116 @@ void SceneRenderCameraShake_b()
   // Handle Shake
   if (shake_time != 0)
   {
-    SCX_REG += shake_time & 0x5;
+    scroll_x += shake_time & 0x5;
   }
 }
 
 void SceneRenderActors_b()
 {
-  UBYTE i, flip, frame, sprite_index, screen_x, screen_y, redraw, len, scx, scy;
+  UBYTE i, s, x, y, jump;
+  UBYTE *ptr;
 
-  scx = 0 - SCX_REG;
-  scy = 0 - SCY_REG;
-
-  if (IS_FRAME_64 || script_ptr != 0)
+  if (IS_FRAME_9)
   {
-    len = scene_num_actors;
-  }
-  else
-  {
-    // Else only update player
-    len = 1;
-  }
+    ptr = actors;
+    jump = sizeof(ACTOR);
 
-  for (i = 0; i != len; ++i)
-  {
-    // LOG("CHECK FOR REDRAW Actor %u\n", i);
-
-    redraw = actors[i].redraw;
-
-    // If just landed on new tile or needs a redraw
-    if (redraw)
-    {
-      sprite_index = MUL_2(i);
-
-      flip = FALSE;
-      frame = actors[i].sprite;
-
-      if (actors[i].sprite_type == SPRITE_ACTOR_ANIMATED)
-      {
-        // Set frame offset based on position, every 16px switch frame
-        frame += (DIV_16(actors[i].pos.x) & 1) == (DIV_16(actors[i].pos.y) & 1);
-      }
-
-      if (actors[i].sprite_type != SPRITE_STATIC)
-      {
-        // Increase frame based on facing direction
-        if (actors[i].dir.y < 0)
-        {
-          frame += 1 + (actors[i].sprite_type == SPRITE_ACTOR_ANIMATED);
-        }
-        else if (actors[i].dir.x != 0)
-        {
-          frame += 2 + MUL_2(actors[i].sprite_type == SPRITE_ACTOR_ANIMATED);
-
-          // Facing left so flip sprite
-          if (actors[i].dir.x < 0)
-          {
-            flip = TRUE;
-          }
-        }
-      }
-
-      // LOG("REDRAW Actor %u\n", i);
-
-      // Handle facing left
-      if (flip)
-      {
-        set_sprite_prop_pair(sprite_index, S_FLIPX);
-        set_sprite_tile_pair(sprite_index, MUL_4(frame) + 2, MUL_4(frame));
-      }
-      else
-      {
-        set_sprite_prop_pair(sprite_index, 0x0);
-        set_sprite_tile_pair(sprite_index, MUL_4(frame), MUL_4(frame) + 2);
-      }
-
-      actors[i].redraw = FALSE;
-      redraw = TRUE;
-    }
-  }
-
-  if (camera_moved)
-  {
     for (i = 0; i != scene_num_actors; ++i)
     {
-      sprite_index = MUL_2(i);
-      // LOG("a Reposition Actor %u\n", i);
-      screen_x = actors[i].pos.x + scx;
-      screen_y = actors[i].pos.y + scy;
-      if (actors[i].enabled && (win_pos_y == MENU_CLOSED_Y || screen_y < win_pos_y + 16))
+      s = MUL_2(i) + ACTOR_SPRITE_OFFSET;
+      x = MUL_4(ACTOR_SPRITE(ptr) + ACTOR_FRAME(ptr) + ACTOR_FRAME_OFFSET(ptr));
+      if (ACTOR_FLIP(ptr))
       {
-        move_sprite_pair(sprite_index, screen_x, screen_y);
+        set_sprite_tile(s + 1, x);
+        set_sprite_tile(s, x + 2);
       }
       else
       {
-        hide_sprite_pair(sprite_index);
+        set_sprite_tile(s, x);
+        set_sprite_tile(s + 1, x + 2);
       }
+
+      ptr += jump;
     }
   }
-  else
+
+  ptr = actors;
+  jump = sizeof(ACTOR);
+
+  for (i = 0; i != scene_num_actors; ++i)
   {
-    // If frame when npc would move
-    if (win_pos_y != MENU_CLOSED_Y || ((time & 7) && !(time & 56)) || ((time & 0x3F) == 0))
+    s = MUL_2(i) + ACTOR_SPRITE_OFFSET;
+    x = ACTOR_X(ptr) - scroll_x;
+    y = ACTOR_Y(ptr) - scroll_y;
+
+    if (ACTOR_ENABLED(ptr) && (win_pos_y == MENU_CLOSED_Y || (y < win_pos_y + 16 || x < win_pos_x + 8)))
     {
-      len = scene_num_actors;
+      move_sprite(s, x, y);
+      move_sprite(s + 1, x + 8, y);
     }
     else
     {
-      // Else only move player
-      len = 1;
-      // Unless running script on actor
-      if (script_ptr != 0 && script_actor != 0)
-      {
-        sprite_index = MUL_2(script_actor);
-        screen_x = actors[script_actor].pos.x + scx;
-        screen_y = actors[script_actor].pos.y + scy;
-        if (actors[script_actor].enabled && (win_pos_y == MENU_CLOSED_Y || screen_y < win_pos_y + 16))
-        {
-          move_sprite_pair(sprite_index, screen_x, screen_y);
-        }
-        else
-        {
-          hide_sprite_pair(sprite_index);
-        }
-      }
+      move_sprite(s, 0, 0);
+      move_sprite(s + 1, 0, 0);
     }
-    for (i = 0; i != len; ++i)
-    {
-      sprite_index = MUL_2(i);
-      // LOG("b Reposition Actor %u\n", i);
-      screen_x = actors[i].pos.x + scx;
-      screen_y = actors[i].pos.y + scy;
-      if (actors[i].enabled && (win_pos_y == MENU_CLOSED_Y || screen_y < win_pos_y + 16))
-      {
-        move_sprite_pair(sprite_index, screen_x, screen_y);
-      }
-      else
-      {
-        hide_sprite_pair(sprite_index);
-      }
-    }
+    ptr += jump;
   }
+}
+
+void SceneRenderActor_b(UBYTE i)
+{
+  UBYTE s, flip, frame, fo;
+
+  s = MUL_2(i) + ACTOR_SPRITE_OFFSET;
+  fo = 0;
+
+  flip = actors[i].flip;
+
+  if (actors[i].sprite_type != SPRITE_STATIC)
+  {
+    flip = FALSE;
+
+    // Increase frame based on facing direction
+    if (IS_NEG(actors[i].dir.y))
+    {
+      fo = 1 + (actors[i].sprite_type == SPRITE_ACTOR_ANIMATED);
+    }
+    else if (actors[i].dir.x != 0)
+    {
+      fo = 2 + MUL_2(actors[i].sprite_type == SPRITE_ACTOR_ANIMATED);
+
+      // Facing left so flip sprite
+      if (IS_NEG(actors[i].dir.x))
+      {
+        flip = TRUE;
+      }
+    }
+    else
+    {
+      fo = 0;
+    }
+
+    actors[i].flip = FALSE;
+    actors[i].flip = flip;
+  }
+
+  frame = MUL_4(actors[i].sprite + actors[i].frame + fo);
+
+  if (flip)
+  {
+    // Handle facing left
+    set_sprite_prop_pair(s, S_FLIPX);
+    set_sprite_tile_pair(s, frame + 2, frame);
+  }
+  else
+  {
+    // Handle facing right
+    set_sprite_prop_pair(s, 0x0);
+    set_sprite_tile_pair(s, frame, frame + 2);
+  }
+
+  actors[i].frame_offset = 0;
+  actors[i].frame_offset = fo;
 }
 
 void SceneRenderEmoteBubble_b()
@@ -891,8 +1063,8 @@ void SceneRenderEmoteBubble_b()
     {
 
       // Set x and y above actor displaying emote
-      screen_x = actors[emote_actor].pos.x - SCX_REG;
-      screen_y = actors[emote_actor].pos.y - ACTOR_HEIGHT - SCY_REG;
+      screen_x = actors[emote_actor].pos.x - scroll_x;
+      screen_y = actors[emote_actor].pos.y - ACTOR_HEIGHT - scroll_y;
 
       // At start of animation bounce bubble in using stored offsets
       if (emote_timer < BUBBLE_ANIMATION_FRAMES)
@@ -913,8 +1085,8 @@ void SceneRenderEmoteBubble_b()
 UBYTE ScenePlayerAt_b(UBYTE tx_a, UBYTE ty_a)
 {
   UBYTE tx_b, ty_b;
-  tx_b = DIV_8(actors[0].pos.x);
-  ty_b = DIV_8(actors[0].pos.y);
+  tx_b = DIV_8(ACTOR_X((UBYTE *)actors));
+  ty_b = DIV_8(ACTOR_Y((UBYTE *)actors));
   if ((ty_a == ty_b || ty_a == ty_b - 1) &&
       (tx_a == tx_b || tx_a == tx_b + 1 || tx_a + 1 == tx_b))
   {
@@ -926,22 +1098,35 @@ UBYTE ScenePlayerAt_b(UBYTE tx_a, UBYTE ty_a)
   }
 }
 
-UBYTE SceneNpcAt_b(UBYTE index, UBYTE tx_a, UBYTE ty_a)
+UBYTE SceneNpcAt_b(UBYTE index, UBYTE tx_a, UBYTE ty_a, UBYTE inc_noclip)
 {
-  UBYTE i, tx_b, ty_b;
+  UBYTE i, tx_b, ty_b, jump;
+  UBYTE *ptr;
+
+  ptr = actors;
+  jump = sizeof(ACTOR);
+
   for (i = 0; i != scene_num_actors; i++)
   {
-    if (i == index || !actors[i].enabled)
+    if (i == index || !ACTOR_ENABLED(ptr) || (!inc_noclip && !ACTOR_COLLISIONS_ENABLED(ptr)))
     {
+      ptr += jump;
       continue;
     }
-    tx_b = DIV_8(actors[i].pos.x);
-    ty_b = DIV_8(actors[i].pos.y);
+    tx_b = DIV_8(ACTOR_X(ptr));
+    ty_b = DIV_8(ACTOR_Y(ptr));
+    if (ty_b == 0)
+    {
+      // If actor at posY=256 (really 0 since 8bit) convert to correct tile
+      // since DIV_8 will give tile as 0 rather than 32
+      ty_b = 32;
+    }
     if ((ty_a == ty_b || ty_a == ty_b - 1) &&
         (tx_a == tx_b || tx_a == tx_b + 1 || tx_a + 1 == tx_b))
     {
       return i;
     }
+    ptr += jump;
   }
   return scene_num_actors;
 }
@@ -986,5 +1171,16 @@ UBYTE SceneIsEmoting_b()
 
 UBYTE SceneCameraAtDest_b()
 {
-  return SCX_REG == camera_dest.x && SCY_REG == camera_dest.y;
+  return scroll_x == camera_dest.x && scroll_y == camera_dest.y;
+}
+
+UBYTE SceneAwaitInputPressed_b()
+{
+  // If scene hasn't finished loading prevent input
+  if (!scene_loaded || !scene_input_ready || !ACTOR_ON_TILE(0) || fade_running)
+  {
+    return FALSE;
+  }
+
+  return ((joy & await_input) != 0);
 }

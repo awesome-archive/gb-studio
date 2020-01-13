@@ -1,8 +1,10 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import cx from "classnames";
+import { connect } from "react-redux";
 import { SelectIcon, BrickIcon, EraserIcon, PlusIcon } from "../library/Icons";
 import { Menu, MenuItem, MenuOverlay } from "../library/Menu";
-import { connect } from "react-redux";
+import l10n from "../../lib/helpers/l10n";
 import * as actions from "../../actions";
 
 class ToolPicker extends Component {
@@ -28,19 +30,28 @@ class ToolPicker extends Component {
     if (e.ctrlKey || e.shiftKey || e.metaKey) {
       return;
     }
-    if (e.key === "t") {
+    if (e.code === "KeyT") {
       this.setTool("triggers")(e);
-    } else if (e.key === "a") {
+    } else if (e.code === "KeyA") {
       this.setTool("actors")(e);
-    } else if (e.key === "c") {
+    } else if (e.code === "KeyC") {
       this.setTool("collisions")(e);
-    } else if (e.key === "s") {
+    } else if (e.code === "KeyS") {
       this.setTool("scene")(e);
-    } else if (e.key === "e") {
+    } else if (e.code === "KeyE") {
       this.setTool("eraser")(e);
-    } else if (e.key === "v") {
+    } else if (e.code === "KeyV") {
       this.setTool("select")(e);
+    } else if (e.code === "Escape") {
+      if (this.isAddSelected()) {
+        this.setTool("select")(e);
+      }
     }
+  };
+
+  isAddSelected = () => {
+    const { selected } = this.props;
+    return ["actors", "triggers", "scene"].indexOf(selected) > -1;
   };
 
   openAdd = () => {
@@ -58,7 +69,8 @@ class ToolPicker extends Component {
 
   setTool = id => e => {
     e.stopPropagation();
-    this.props.setTool(id);
+    const { setTool } = this.props;
+    setTool(id);
     this.setState({
       add: false
     });
@@ -72,18 +84,18 @@ class ToolPicker extends Component {
         <div
           onClick={this.setTool("select")}
           className={cx("ToolPicker__Item", {
-            "ToolPicker__Item--Selected": "select" === selected
+            "ToolPicker__Item--Selected": selected === "select"
           })}
-          title="Select (v)"
+          title={`${l10n("TOOL_SELECT_LABEL")} (v)`}
         >
           <SelectIcon />
         </div>
         <div
           onClick={this.openAdd}
           className={cx("ToolPicker__Item", {
-            "ToolPicker__Item--Selected":
-              ["actors", "triggers", "map"].indexOf(selected) > -1
+            "ToolPicker__Item--Selected": this.isAddSelected()
           })}
+          title={`${l10n("TOOL_ADD_LABEL")}`}
         >
           <PlusIcon />
           {add && <MenuOverlay onClick={this.closeAdd} />}
@@ -94,17 +106,23 @@ class ToolPicker extends Component {
                 top: 5
               }}
             >
-              <MenuItem onClick={this.setTool("actors")} title="Add Actor (a)">
-                Actor
+              <MenuItem
+                onClick={this.setTool("actors")}
+                title={`${l10n("TOOL_ADD_ACTOR_LABEL")} (a)`}
+              >
+                {l10n("ACTOR")}
               </MenuItem>
               <MenuItem
                 onClick={this.setTool("triggers")}
-                title="Add Trigger (t)"
+                title={`${l10n("TOOL_ADD_TRIGGER_LABEL")} (t)`}
               >
-                Trigger
+                {l10n("TRIGGER")}
               </MenuItem>
-              <MenuItem onClick={this.setTool("scene")} title="Add Scene (s)">
-                Scene
+              <MenuItem
+                onClick={this.setTool("scene")}
+                title={`${l10n("TOOL_ADD_SCENE_LABEL")} (s)`}
+              >
+                {l10n("SCENE")}
               </MenuItem>
             </Menu>
           )}
@@ -112,18 +130,18 @@ class ToolPicker extends Component {
         <div
           onClick={this.setTool("eraser")}
           className={cx("ToolPicker__Item", {
-            "ToolPicker__Item--Selected": "eraser" === selected
+            "ToolPicker__Item--Selected": selected === "eraser"
           })}
-          title="Eraser (e)"
+          title={`${l10n("TOOL_ERASER_LABEL")} (e)`}
         >
           <EraserIcon />
         </div>
         <div
           onClick={this.setTool("collisions")}
           className={cx("ToolPicker__Item", {
-            "ToolPicker__Item--Selected": "collisions" === selected
+            "ToolPicker__Item--Selected": selected === "collisions"
           })}
-          title="Collisions (c)"
+          title={`${l10n("TOOL_COLLISIONS_LABEL")} (c)`}
         >
           <BrickIcon />
         </div>
@@ -131,6 +149,18 @@ class ToolPicker extends Component {
     );
   }
 }
+
+ToolPicker.propTypes = {
+  selected: PropTypes.oneOf([
+    "triggers",
+    "actors",
+    "collisions",
+    "scene",
+    "eraser",
+    "select"
+  ]).isRequired,
+  setTool: PropTypes.func.isRequired
+};
 
 function mapStateToProps(state) {
   return {

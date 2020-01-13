@@ -2,6 +2,9 @@ import ScripTracker from "../lib/vendor/scriptracker/scriptracker";
 import {
   PLAY_MUSIC,
   PAUSE_MUSIC,
+  PLAY_SOUNDFX_BEEP,
+  PLAY_SOUNDFX_TONE,
+  PLAY_SOUNDFX_CRASH,
   SET_SECTION,
   SET_NAVIGATION_ID
 } from "../actions/actionTypes";
@@ -9,7 +12,6 @@ import {
 let modPlayer;
 
 function initMusic() {
-  console.log("Init music");
   modPlayer = new ScripTracker();
   modPlayer.on(ScripTracker.Events.playerReady, onSongLoaded);
   window.removeEventListener("click", initMusic);
@@ -22,7 +24,6 @@ window.addEventListener("keydown", initMusic);
 window.addEventListener("blur", pause);
 
 function onSongLoaded(player) {
-  console.log("ONLOADED");
   player.play();
 }
 
@@ -40,15 +41,19 @@ function pause() {
 
 export default store => next => action => {
   if (action.type === PLAY_MUSIC) {
-    console.log(action);
     play(action.filename);
   } else if (action.type === PAUSE_MUSIC) {
+    pause();
+  } else if (
+    action.type === PLAY_SOUNDFX_BEEP ||
+    action.type === PLAY_SOUNDFX_TONE ||
+    action.type === PLAY_SOUNDFX_CRASH
+  ) {
     pause();
   } else if (action.type === SET_SECTION) {
     pause();
   } else if (action.type === SET_NAVIGATION_ID) {
     pause();
   }
-  let result = next(action);
-  return result;
+  return next(action);
 };

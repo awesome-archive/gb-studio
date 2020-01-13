@@ -1,124 +1,246 @@
+/* eslint-disable jsx-a11y/label-has-for */
 import React, { Component } from "react";
+import PropTypes from "prop-types";
+import { clipboard } from "electron";
 import { connect } from "react-redux";
 import * as actions from "../../actions";
-import { TriggerIcon } from "../../components/library/Icons";
 import BackgroundSelect from "../forms/BackgroundSelect";
-import { FormField } from "../../components/library/Forms";
+import { FormField, ToggleableFormField } from "../library/Forms";
 import ScriptEditor from "../script/ScriptEditor";
 import castEventValue from "../../lib/helpers/castEventValue";
-import SidebarHeading from "./SidebarHeading";
-import SpriteSheetCanvas from "../world/SpriteSheetCanvas";
 import { DropdownButton } from "../library/Button";
-import { MenuItem } from "../library/Menu";
+import { MenuItem, MenuDivider } from "../library/Menu";
+import l10n from "../../lib/helpers/l10n";
+import Sidebar, { SidebarHeading, SidebarColumn, SidebarTabs } from "./Sidebar";
+import { SceneShape } from "../../reducers/stateShape";
+import SceneNavigation from "./SceneNavigation";
+import WorldEditor from "./WorldEditor";
 
 class SceneEditor extends Component {
+  constructor() {
+    super();
+    this.state = {
+      clipboardActor: null,
+      clipboardScene: null,
+      clipboardTrigger: null
+    };
+  }
+
   onEdit = key => e => {
-    this.props.editScene(this.props.id, {
+    const { editScene, scene } = this.props;
+    editScene(scene.id, {
       [key]: castEventValue(e)
     });
   };
 
+  onCopy = e => {
+    const { copyScene, scene } = this.props;
+    copyScene(scene);
+  };
+
+  onPaste = e => {
+    const { setScenePrefab } = this.props;
+    const { clipboardScene } = this.state;
+    setScenePrefab(clipboardScene);
+  };
+
+  onPasteActor = e => {
+    const { setActorPrefab } = this.props;
+    const { clipboardActor } = this.state;
+    setActorPrefab(clipboardActor);
+  };
+
+  onPasteTrigger = e => {
+    const { setTriggerPrefab } = this.props;
+    const { clipboardTrigger } = this.state;
+    setTriggerPrefab(clipboardTrigger);
+  };
+
+  readClipboard = e => {
+    try {
+      const clipboardData = JSON.parse(clipboard.readText());
+      if (clipboardData.__type === "actor") {
+        this.setState({
+          clipboardActor: clipboardData,
+          clipboardTrigger: null,
+          clipboardScene: null
+        });
+      } else if (clipboardData.__type === "trigger") {
+        this.setState({
+          clipboardActor: null,
+          clipboardTrigger: clipboardData,
+          clipboardScene: null
+        });
+      } else if (clipboardData.__type === "scene") {
+        this.setState({
+          clipboardActor: null,
+          clipboardTrigger: null,
+          clipboardScene: clipboardData
+        });
+      } else {
+        this.setState({
+          clipboardActor: null,
+          clipboardTrigger: null,
+          clipboardScene: null
+        });
+      }
+    } catch (err) {
+      this.setState({
+        clipboardActor: null,
+        clipboardTrigger: null,
+        clipboardScene: null
+      });
+    }
+  };
+
   onRemove = e => {
-    this.props.removeScene(this.props.id);
+    const { removeScene, scene } = this.props;
+    removeScene(scene.id);
   };
 
   render() {
-    const { scene, sceneIndex } = this.props;
+    const { scene, sceneIndex, selectSidebar } = this.props;
 
     if (!scene) {
-      return <div />;
+      return <WorldEditor />;
     }
 
+    const { clipboardScene, clipboardActor, clipboardTrigger } = this.state;
+
+    const renderScriptHeader = ({ buttons }) => (
+      <SidebarTabs
+        values={{
+          init: l10n("SIDEBAR_ON_INIT")
+        }}
+        buttons={buttons}
+      />
+    );
+
     return (
-      <div>
-        <SidebarHeading
-          title="Scene"
-          buttons={
-            <DropdownButton small transparent right>
-              <MenuItem onClick={this.onRemove}>Delete Scene</MenuItem>
-            </DropdownButton>
-          }
-        />
-        <div>
-          <FormField>
-            <label htmlFor="sceneName">Name</label>
-            <input
-              id="sceneName"
-              placeholder={"Scene " + (sceneIndex + 1)}
-              value={scene.name}
-              onChange={this.onEdit("name")}
-            />
-          </FormField>
-
-          <FormField>
-            <label htmlFor="sceneType">Type</label>
-            <select id="sceneType">
-              <option>Top Down 2D</option>
-            </select>
-          </FormField>
-
-          <FormField>
-            <label htmlFor="sceneImage">Background</label>
-            <BackgroundSelect
-              id="sceneImage"
-              value={scene.backgroundId}
-              onChange={this.onEdit("backgroundId")}
-            />
-          </FormField>
-        </div>
-
-        {(scene.actors.length > 0 || scene.triggers.length > 0) && (
+      <Sidebar onMouseDown={selectSidebar}>
+        <SidebarColumn>
+          <SidebarHeading
+            title={l10n("SCENE")}
+            buttons={
+              <DropdownButton
+                small
+                transparent
+                right
+                onMouseDown={this.readClipboard}
+              >
+                <MenuItem onClick={this.onCopy}>
+                  {l10n("MENU_COPY_SCENE")}
+                </MenuItem>
+                {clipboardScene && (
+                  <MenuItem onClick={this.onPaste}>
+                    {l10n("MENU_PASTE_SCENE")}
+                  </MenuItem>
+                )}
+                {clipboardActor && (
+                  <MenuItem onClick={this.onPasteActor}>
+                    {l10n("MENU_PASTE_ACTOR")}
+                  </MenuItem>
+                )}
+                {clipboardTrigger && (
+                  <MenuItem onClick={this.onPasteTrigger}>
+                    {l10n("MENU_PASTE_TRIGGER")}
+                  </MenuItem>
+                )}
+                <MenuDivider />
+                <MenuItem onClick={this.onRemove}>
+                  {l10n("MENU_DELETE_SCENE")}
+                </MenuItem>
+              </DropdownButton>
+            }
+          />
           <div>
-            <SidebarHeading title="Navigation" />
-            <ul>
-              {scene.actors.map((actor, index) => (
-                <li
-                  key={index}
-                  onClick={() => this.props.selectActor(scene.id, index)}
-                >
-                  <div className="EditorSidebar__Icon">
-                    <SpriteSheetCanvas
-                      spriteSheetId={actor.spriteSheetId}
-                      direction={actor.direction}
-                    />
-                  </div>
-                  {actor.name || "Actor " + (index + 1)}
-                </li>
-              ))}
-              {scene.triggers.map((trigger, index) => (
-                <li
-                  key={index}
-                  onClick={() => this.props.selectTrigger(scene.id, index)}
-                >
-                  <div className="EditorSidebar__Icon">
-                    <TriggerIcon />
-                  </div>
-                  {trigger.name || "Trigger " + (index + 1)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+            <FormField>
+              <label htmlFor="sceneName">
+                {l10n("FIELD_NAME")}
+                <input
+                  id="sceneName"
+                  placeholder={`Scene ${sceneIndex + 1}`}
+                  value={scene.name}
+                  onChange={this.onEdit("name")}
+                />
+              </label>
+            </FormField>
 
-        <SidebarHeading title="Scene Start Script" />
-        <ScriptEditor
-          value={scene.script}
-          type="scene"
-          onChange={this.onEdit("script")}
-        />
-      </div>
+            <FormField>
+              <label htmlFor="sceneType">
+                {l10n("FIELD_TYPE")}
+                <select id="sceneType">
+                  <option>Top Down 2D</option>
+                </select>
+              </label>
+            </FormField>
+
+            <FormField>
+              <label htmlFor="sceneImage">
+                {l10n("FIELD_BACKGROUND")}
+                <BackgroundSelect
+                  id="sceneImage"
+                  value={scene.backgroundId}
+                  onChange={this.onEdit("backgroundId")}
+                />
+              </label>
+            </FormField>
+
+            <ToggleableFormField
+              htmlFor="sceneNotes"
+              closedLabel={l10n("FIELD_ADD_NOTES")}
+              label={l10n("FIELD_NOTES")}
+              open={!!scene.notes}
+            >
+              <textarea
+                id="sceneNotes"
+                value={scene.notes || ""}
+                placeholder={l10n("FIELD_NOTES")}
+                onChange={this.onEdit("notes")}
+                rows={3}
+              />
+            </ToggleableFormField>
+          </div>
+
+          <SceneNavigation sceneId={scene.id} />
+        </SidebarColumn>
+
+        <SidebarColumn>
+          <ScriptEditor
+            value={scene.script}
+            renderHeader={renderScriptHeader}
+            type="scene"
+            onChange={this.onEdit("script")}
+            entityId={scene.id}
+          />
+        </SidebarColumn>
+      </Sidebar>
     );
   }
 }
 
+SceneEditor.propTypes = {
+  scene: SceneShape,
+  sceneIndex: PropTypes.number.isRequired,
+  editScene: PropTypes.func.isRequired,
+  removeScene: PropTypes.func.isRequired,
+  copyScene: PropTypes.func.isRequired,
+  setScenePrefab: PropTypes.func.isRequired,
+  setActorPrefab: PropTypes.func.isRequired,
+  setTriggerPrefab: PropTypes.func.isRequired,
+  selectSidebar: PropTypes.func.isRequired
+};
+
+SceneEditor.defaultProps = {
+  scene: null
+};
+
 function mapStateToProps(state, props) {
-  const hasScenes = state.project.present && state.project.present.scenes;
-  const sceneIndex = hasScenes
-    ? state.project.present.scenes.findIndex(scene => scene.id === props.id)
-    : -1;
+  const scene = state.entities.present.entities.scenes[props.id];
+  const sceneIndex = state.entities.present.result.scenes.indexOf(props.id);
   return {
     sceneIndex,
-    scene: sceneIndex != -1 && state.project.present.scenes[sceneIndex]
+    scene
   };
 }
 
@@ -126,10 +248,12 @@ const mapDispatchToProps = {
   editScene: actions.editScene,
   removeScene: actions.removeScene,
   selectActor: actions.selectActor,
-  selectTrigger: actions.selectTrigger
+  selectTrigger: actions.selectTrigger,
+  copyScene: actions.copyScene,
+  setScenePrefab: actions.setScenePrefab,
+  setActorPrefab: actions.setActorPrefab,
+  setTriggerPrefab: actions.setTriggerPrefab,
+  selectSidebar: actions.selectSidebar
 };
 
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps
-)(SceneEditor);
+export default connect(mapStateToProps, mapDispatchToProps)(SceneEditor);

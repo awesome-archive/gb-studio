@@ -1,4 +1,7 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
+import { Helmet } from "react-helmet";
+import { connect } from "react-redux";
 import {
   Toolbar,
   ToolbarTitle,
@@ -16,61 +19,80 @@ import {
   FolderIcon,
   LoadingIcon
 } from "../components/library/Icons";
-import { connect } from "react-redux";
 import * as actions from "../actions";
+import l10n from "../lib/helpers/l10n";
+import { zoomForSection } from "../lib/helpers/gbstudio";
 
 const sectionNames = {
-  world: "Game World",
-  sprites: "Sprites",
-  backgrounds: "Backgrounds",
-  ui: "UI Elements",
-  music: "Music",
-  script: "Script Review",
-  build: "Build & Run"
+  world: l10n("NAV_GAME_WORLD"),
+  sprites: l10n("NAV_SPRITES"),
+  backgrounds: l10n("NAV_BACKGROUNDS"),
+  ui: l10n("NAV_UI_ELEMENTS"),
+  music: l10n("NAV_MUSIC"),
+  dialogue: l10n("NAV_DIALOGUE_REVIEW"),
+  build: l10n("NAV_BUILD_AND_RUN"),
+  settings: l10n("NAV_SETTINGS")
 };
 
 class AppToolbar extends Component {
   setSection = section => e => {
-    this.props.setSection(section);
+    const { setSection } = this.props;
+    setSection(section);
   };
 
   onZoomIn = e => {
     e.preventDefault();
     e.stopPropagation();
-    this.props.zoomIn(this.props.section);
+    const { zoomIn, section } = this.props;
+    zoomIn(section);
   };
 
   onZoomOut = e => {
     e.preventDefault();
     e.stopPropagation();
-    this.props.zoomOut(this.props.section);
+    const { zoomOut, section } = this.props;
+    zoomOut(section);
   };
 
   onZoomReset = e => {
     e.preventDefault();
     e.stopPropagation();
-    this.props.zoomReset(this.props.section);
+    const { zoomReset, section } = this.props;
+    zoomReset(section);
   };
 
   onRun = async e => {
-    this.props.buildGame({ buildType: "web" });
+    const { buildGame } = this.props;
+    buildGame({ buildType: "web" });
   };
 
   onBuild = buildType => e => {
-    this.props.buildGame({ buildType, exportBuild: true });
+    const { buildGame } = this.props;
+    buildGame({ buildType, exportBuild: true });
   };
 
   openProjectFolder = e => {
-    this.props.openFolder(`${this.props.projectRoot}`);
+    const { openFolder, projectRoot } = this.props;
+    openFolder(projectRoot);
   };
 
   render() {
-    const { name, section = "world", zoom, showZoom, running, modified } = this.props;
+    const {
+      name,
+      section = "world",
+      zoom,
+      showZoom,
+      running,
+      modified
+    } = this.props;
 
     return (
       <Toolbar>
+        <Helmet>
+          <title>{name}</title>
+        </Helmet>
         <ToolbarDropdownButton
-          label={<div style={{ width: 106 }}>{sectionNames[section]}</div>}
+          label={<div style={{ minWidth: 106 }}>{sectionNames[section]}</div>}
         >
           {Object.keys(sectionNames).map(key => (
             <MenuItem
@@ -90,42 +112,54 @@ class AppToolbar extends Component {
             visibility: !showZoom && "hidden"
           }}
         >
-          <ToolbarButton onClick={this.onZoomOut} title="Zoom Out">
+          <ToolbarButton
+            onClick={this.onZoomOut}
+            title={l10n("TOOLBAR_ZOOM_OUT")}
+          >
             <MinusIcon />
           </ToolbarButton>
           <div
-            title="Reset Zoom"
+            title={l10n("TOOLBAR_ZOOM_RESET")}
             onClick={this.onZoomReset}
             style={{ width: 34, flexShrink: 0, textAlign: "center" }}
           >
             {Math.round(zoom)}%
           </div>
-          <ToolbarButton onClick={this.onZoomIn} title="Zoom In">
+          <ToolbarButton
+            onClick={this.onZoomIn}
+            title={l10n("TOOLBAR_ZOOM_IN")}
+          >
             <PlusIcon />
           </ToolbarButton>
         </ToolbarButton>
         <ToolbarSpacer />
-        <ToolbarTitle>{name || "Untitled"} {modified && " (modified)"}</ToolbarTitle>
+        <ToolbarTitle>
+          {name || "Untitled"} {modified && ` (${l10n("TOOLBAR_MODIFIED")})`}
+        </ToolbarTitle>
         <ToolbarSpacer />
         <ToolbarFixedSpacer style={{ width: 138 }} />
         <ToolbarButton
-          title="Open Project Folder"
+          title={l10n("TOOLBAR_OPEN_PROJECT_FOLDER")}
           onClick={this.openProjectFolder}
         >
           <FolderIcon />
         </ToolbarButton>
         <ToolbarDropdownButton
-          title="Export As..."
+          title={l10n("TOOLBAR_EXPORT_AS")}
           label={<ExportIcon />}
           showArrow={false}
           right
         >
-          <MenuItem onClick={this.onBuild("rom")}>Export ROM</MenuItem>
-          <MenuItem onClick={this.onBuild("web")}>Export Web</MenuItem>
+          <MenuItem onClick={this.onBuild("rom")}>
+            {l10n("TOOLBAR_EXPORT_ROM")}
+          </MenuItem>
+          <MenuItem onClick={this.onBuild("web")}>
+            {l10n("TOOLBAR_EXPORT_WEB")}
+          </MenuItem>
         </ToolbarDropdownButton>
         <ToolbarFixedSpacer />
         <ToolbarButton
-          title="Run"
+          title={l10n("TOOLBAR_RUN")}
           onClick={running ? this.setSection("build") : this.onRun}
         >
           {running ? <LoadingIcon /> : <PlayIcon />}
@@ -135,22 +169,33 @@ class AppToolbar extends Component {
   }
 }
 
+AppToolbar.propTypes = {
+  name: PropTypes.string,
+  projectRoot: PropTypes.string.isRequired,
+  section: PropTypes.string.isRequired,
+  zoom: PropTypes.number.isRequired,
+  setSection: PropTypes.func.isRequired,
+  zoomIn: PropTypes.func.isRequired,
+  zoomOut: PropTypes.func.isRequired,
+  zoomReset: PropTypes.func.isRequired,
+  openFolder: PropTypes.func.isRequired,
+  buildGame: PropTypes.func.isRequired,
+  running: PropTypes.bool.isRequired,
+  modified: PropTypes.bool.isRequired,
+  showZoom: PropTypes.bool.isRequired
+};
+
+AppToolbar.defaultProps = {
+  name: ""
+};
+
 function mapStateToProps(state) {
   const section = state.navigation.section;
-  const zoom =
-    section === "world"
-      ? state.editor.zoom
-      : section === "sprites"
-      ? state.editor.zoomSprite
-      : section === "backgrounds"
-      ? state.editor.zoomImage
-      : section === "ui"
-      ? state.editor.zoomUI
-      : 100;
+  const zoom = zoomForSection(section, state.editor);
   return {
     projectRoot: state.document && state.document.root,
     modified: state.document && state.document.modified,
-    name: state.project.present && state.project.present.name,
+    name: state.entities.present.result.name,
     section,
     zoom,
     showZoom: ["world", "sprites", "backgrounds", "ui"].indexOf(section) > -1,

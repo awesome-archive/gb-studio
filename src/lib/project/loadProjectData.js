@@ -1,86 +1,118 @@
 import fs from "fs-extra";
 import path from "path";
+import uuid from "uuid/v4";
 import loadAllBackgroundData from "./loadBackgroundData";
 import loadAllSpriteData from "./loadSpriteData";
 import loadAllMusicData from "./loadMusicData";
+import migrateProject from "./migrateProject";
+import { indexByFn } from "../helpers/array";
+
+const elemKey = elem => {
+  return (elem.plugin ? `${elem.plugin}/` : "") + elem.filename;
+};
+
+const indexByFilename = indexByFn(elemKey);
+
+const sortByName = (a, b) => {
+  const aName = a.name.toUpperCase();
+  const bName = b.name.toUpperCase();
+  if (aName < bName) {
+    return -1;
+  }
+  if (aName > bName) {
+    return 1;
+  }
+  return 0;
+};
 
 const loadProject = async projectPath => {
-  const json = await fs.readJson(projectPath);
+  const json = migrateProject(await fs.readJson(projectPath));
 
   const projectRoot = path.dirname(projectPath);
 
-  const backgrounds = await loadAllBackgroundData(projectRoot);
-  const sprites = await loadAllSpriteData(projectRoot);
-  const music = await loadAllMusicData(projectRoot);
-
-  const oldBackgroundFilenamesToIds = (json.backgrounds || []).reduce(
-    (memo, oldData) => {
-      memo[oldData.filename] = oldData.id;
-      return memo;
-    },
-    {}
-  );
+  const [backgrounds, sprites, music] = await Promise.all([
+    loadAllBackgroundData(projectRoot),
+    loadAllSpriteData(projectRoot),
+    loadAllMusicData(projectRoot)
+  ]);
 
   // Merge stored backgrounds data with file system data
+  const oldBackgroundByFilename = indexByFilename(json.backgrounds || []);
+
   const fixedBackgroundIds = backgrounds
     .map(background => {
-      const oldId = oldBackgroundFilenamesToIds[background.filename];
-      if (oldId) {
-        background.id = oldId;
+      const oldBackground = oldBackgroundByFilename[elemKey(background)];
+      if (oldBackground) {
+        return {
+          ...background,
+          id: oldBackground.id
+        };
       }
       return background;
     })
-    .filter(
-      background =>
-        // Only allow backgrounds with valid dimensions
-        background.width <= 32 &&
-        background.height <= 32 &&
-        background.width >= 20 &&
-        background.height >= 18 &&
-        background.width === Math.floor(background.width) &&
-        background.height === Math.floor(background.height)
-    );
-
-  json.backgrounds = fixedBackgroundIds;
+    .sort(sortByName);
 
   // Merge stored sprite data with file system data
-  const oldSpriteFilenamesToIds = (json.spriteSheets || []).reduce(
-    (memo, oldData) => {
-      memo[oldData.filename] = oldData.id;
-      return memo;
-    },
-    {}
-  );
+  const oldSpriteByFilename = indexByFilename(json.spriteSheets || []);
 
   const fixedSpriteIds = sprites
     .map(sprite => {
-      const oldId = oldSpriteFilenamesToIds[sprite.filename];
-      if (oldId) {
-        sprite.id = oldId;
+      const oldSprite = oldSpriteByFilename[elemKey(sprite)];
+      if (oldSprite) {
+        return {
+          ...sprite,
+          id: oldSprite.id
+        };
       }
       return sprite;
     })
-    .filter(sprite => sprite.type !== "invalid");
-
-  json.spriteSheets = fixedSpriteIds;
+    .sort(sortByName);
 
   // Merge stored music data with file system data
-  const oldMusicFilenamesToIds = (json.music || []).reduce((memo, oldData) => {
-    memo[oldData.filename] = oldData.id;
-    return memo;
-  }, {});
+  const oldMusicByFilename = indexByFilename(json.music || []);
 
-  const fixedMusicIds = music.map(music => {
-    const oldId = oldMusicFilenamesToIds[music.filename];
-    if (oldId) {
-      music.id = oldId;
+  const fixedMusicIds = music
+    .map(track => {
+      const oldTrack = oldMusicByFilename[elemKey(track)];
+      if (oldTrack) {
+        return {
+          ...track,
+          id: oldTrack.id
+        };
+      }
+      return track;
+    })
+    .sort(sortByName);
+
+  const addMissingEntityId = entity => {
+    if (!entity.id) {
+      return {
+        ...entity,
+        id: uuid()
+      };
     }
-    return music;
+    return entity;
+  };
+
+  // Fix ids on actors and triggers
+  const fixedScenes = (json.scenes || []).map(scene => {
+    return {
+      ...scene,
+      actors: scene.actors.map(addMissingEntityId),
+      triggers: scene.triggers.map(addMissingEntityId)
+    };
   });
 
-  json.music = fixedMusicIds;
+  const fixedCustomEvents = (json.customEvents || []).map(addMissingEntityId);
 
-  return json;
+  return {
+    ...json,
+    backgrounds: fixedBackgroundIds,
+    spriteSheets: fixedSpriteIds,
+    music: fixedMusicIds,
+    scenes: fixedScenes,
+    customEvents: fixedCustomEvents
+  };
 };
 
 export default loadProject;

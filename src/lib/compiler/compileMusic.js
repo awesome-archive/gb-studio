@@ -1,12 +1,10 @@
 import childProcess from "child_process";
-
-import path from "path";
-import { remote } from "electron";
 import fs from "fs-extra";
 import ensureBuildTools from "./ensureBuildTools";
+import { assetFilename } from "../helpers/gbstudio";
 
 const filterLogs = str => {
-  return str.replace(/.*[\/|\\]([^\/|\\]*.mod)/g, "$1");
+  return str.replace(/.*[/|\\]([^/|\\]*.mod)/g, "$1");
 };
 
 const compileMusic = async ({
@@ -18,9 +16,7 @@ const compileMusic = async ({
 } = {}) => {
   const buildToolsPath = await ensureBuildTools();
 
-  console.log("ABOUT TO COMPILE", music);
-
-  for (var i = 0; i < music.length; i++) {
+  for (let i = 0; i < music.length; i++) {
     const track = music[i];
     await compileTrack(track, {
       buildRoot,
@@ -30,8 +26,6 @@ const compileMusic = async ({
       warnings
     });
   }
-
-  console.log("DONE WITH MUSIC");
 };
 
 const compileTrack = async (
@@ -44,20 +38,17 @@ const compileTrack = async (
     warnings = () => {}
   }
 ) => {
-  let env = Object.create(process.env);
-
-  console.log("ABOUT TO COMPILE TRACK", track);
-  console.log(buildRoot);
+  const env = Object.create(process.env);
 
   env.PATH = [`${buildToolsPath}/mod2gbt`, env.PATH].join(":");
   const command =
     process.platform === "win32"
-      ? `${buildToolsPath}\\mod2gbt\\mod2gbt.exe`
+      ? `"${buildToolsPath}\\mod2gbt\\mod2gbt.exe"`
       : "mod2gbt";
 
-  const modPath = `"${projectRoot}/assets/music/${track.filename}"`;
+  const modPath = assetFilename(projectRoot, "music", track);
   const outputFile = process.platform === "win32" ? "output.c" : "music.c";
-  const args = [modPath, track.dataName, "-c", track.bank];
+  const args = [`"${modPath}"`, track.dataName, "-c", track.bank];
 
   const options = {
     cwd: buildRoot,
@@ -66,30 +57,30 @@ const compileTrack = async (
   };
 
   await new Promise(async (resolve, reject) => {
-    let child = childProcess.spawn(command, args, options, {
+    const child = childProcess.spawn(command, args, options, {
       encoding: "utf8"
     });
 
-    child.on("error", function(err) {
+    child.on("error", err => {
       warnings(err.toString());
     });
 
-    child.stdout.on("data", function(data) {
+    child.stdout.on("data", data => {
       const lines = data.toString().split("\n");
       lines.forEach(line => {
         progress(filterLogs(line));
       });
     });
 
-    child.stderr.on("data", function(data) {
+    child.stderr.on("data", data => {
       const lines = data.toString().split("\n");
       lines.forEach(line => {
         warnings(line);
       });
     });
 
-    child.on("close", function(code) {
-      if (code == 0) resolve();
+    child.on("close", code => {
+      if (code === 0) resolve();
       else reject(code);
     });
   });

@@ -1,48 +1,49 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import { connect } from "react-redux";
-import cx from "classnames";
 import TriggerEditor from "./TriggerEditor";
 import ActorEditor from "./ActorEditor";
 import SceneEditor from "./SceneEditor";
 import WorldEditor from "./WorldEditor";
+import CustomEventEditor from "./CustomEventEditor";
 
 class EditorSidebar extends Component {
   render() {
-    const { editor } = this.props;
-    const editorForm =
-      editor.type === "triggers" ? (
-        <TriggerEditor
-          key={editor.index}
-          id={editor.index}
-          scene={editor.scene}
-        />
-      ) : editor.type === "actors" ? (
-        <ActorEditor
-          key={editor.index}
-          id={editor.index}
-          scene={editor.scene}
-        />
-      ) : editor.type === "scenes" ? (
-        <SceneEditor key={editor.scene} id={editor.scene} />
-      ) : editor.type === "world" ? (
-        <WorldEditor />
-      ) : null;
-    return (
-      <div
-        className={cx("EditorSidebar", {
-          "EditorSidebar--Open": !!editorForm
-        })}
-      >
-        {editorForm}
-      </div>
-    );
+    const { type, entityId, sceneId } = this.props;
+    if (type === "triggers") {
+      return <TriggerEditor key={entityId} id={entityId} sceneId={sceneId} />;
+    }
+    if (type === "actors") {
+      return <ActorEditor key={entityId} id={entityId} sceneId={sceneId} />;
+    }
+    if (type === "scenes") {
+      return <SceneEditor key={sceneId} id={sceneId} />;
+    }
+    if (type === "world") {
+      return <WorldEditor />;
+    }
+    if (type === "customEvents") {
+      return <CustomEventEditor key="entityId" id={entityId} />;
+    }
+    return <div />;
   }
 }
 
+EditorSidebar.propTypes = {
+  type: PropTypes.string,
+  entityId: PropTypes.string,
+  sceneId: PropTypes.string
+};
+
+EditorSidebar.defaultProps = {
+  type: "",
+  entityId: "",
+  sceneId: ""
+};
+
 function mapStateToProps(state) {
-  return {
-    editor: state.editor
-  };
+  const { type, entityId, scene: sceneId } = state.editor;
+  return { type, entityId, sceneId };
 }
 
 const mapDispatchToProps = {};

@@ -1,13 +1,28 @@
-.FilesSidebar {
+.FilesSidebarWrapper {
+  right: 0;
   position: fixed;
-  width: 300px;
-  right: 0px;
   top: 38px;
   bottom: 0px;
+  display: flex;
+  flex-direction: row;
+}
+
+.FilesSidebarDragHandle {
+  width: 16px;
+  height: 100vh;
+  position: fixed;
+  margin-left: -8px;
+  cursor: ew-resize;
+}
+
+.FilesSidebar {
   background-color: var(--sidebar-bg-color);
   border-left: 1px solid var(--sidebar-edge-color);
   overflow: auto;
+  overflow-x: hidden;
+  padding: 0px;
   box-sizing: border-box;
+  transition: right 0.3s ease-in-out;
 }
 
 .FilesSidebar__Search {
@@ -49,8 +64,35 @@
   box-shadow: 0 0 0px 2px var(--highlight-color);
 }
 
+.FilesSidebar__Group {
+  padding-bottom: 0px;
+  padding-left: 0px;
+  border-top: 1px solid var(--menu-hover-color);
+  padding-top: 8px;
+  margin-top: 16px;
+}
+
+.FilesSidebar__GroupHeading {
+  color: #999;
+  cursor: default;
+  display: block;
+  font-size: 75%;
+  font-weight: 500;
+  text-transform: uppercase;
+  box-sizing: border-box;
+  margin-top: -14px;
+  float: left;
+  background-color: var(--sidebar-bg-color);
+  margin-left: 5px;
+  padding-left: 5px;
+}
+
+.FilesSidebar__GroupHeading + .FilesSidebar__ListItem {
+  margin-top: 5px;
+}
+
 .FilesSidebar__ListItem {
-  padding: 5px 10px;
+  padding: 6px 10px;
 }
 
 .FilesSidebar__ListItem:hover {

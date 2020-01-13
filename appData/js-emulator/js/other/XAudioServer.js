@@ -203,8 +203,34 @@ XAudioServer.prototype.initializeWebAudio = function () {
     catch (error) {
         XAudioJSWebAudioAudioNode = XAudioJSWebAudioContextHandle.createJavaScriptNode(XAudioJSSamplesPerCallback, 0, XAudioJSChannelsAllocated);	//Create the js event node.
     }
-    XAudioJSWebAudioAudioNode.onaudioprocess = XAudioJSWebAudioEvent;																			//Connect the audio processing event to a handling function so we can manipulate output
-    XAudioJSWebAudioAudioNode.connect(XAudioJSWebAudioContextHandle.destination);																//Send and chain the output of the audio manipulation to the system audio output.
+	XAudioJSWebAudioAudioNode.onaudioprocess = XAudioJSWebAudioEvent;
+	var gainNode = XAudioJSWebAudioContextHandle.createGain();
+	XAudioJSWebAudioAudioNode.connect(gainNode); //Connect the audio processing event to a handling function so we can manipulate output
+	//Connect the audio processing event to a handling function so we can manipulate output
+	gainNode.connect(XAudioJSWebAudioContextHandle.destination);
+	// Ramp up gain to avoid pop when initialised, these can be relaxed/removed with the fixed dc offset in GameBoyCore.js no longer popping
+	gainNode.gain.value = 0.2;
+	gainNode.gain.exponentialRampToValueAtTime(
+	  1,
+	  XAudioJSWebAudioContextHandle.currentTime + 0.5
+	);
+  
+	document.addEventListener("visibilitychange", function(event) {
+	  if (document.hidden) {
+		// Ramp down gain to avoid pop when switching tab away
+		gainNode.gain.exponentialRampToValueAtTime(
+		  0.0001,
+		  XAudioJSWebAudioContextHandle.currentTime + 0.5
+		);
+	  } else {
+		// Ramp up gain to avoid pop when switching back to tab
+		gainNode.gain.exponentialRampToValueAtTime(
+		  1,
+		  XAudioJSWebAudioContextHandle.currentTime + 0.5
+		);
+	  }
+	});
+	
     this.resetCallbackAPIAudioBuffer(XAudioJSWebAudioContextHandle.sampleRate);
     this.audioType = 1;
     /*
@@ -406,7 +432,7 @@ var XAudioJSMediaStreamWorker = null;
 var XAudioJSMediaStreamBuffer = [];
 var XAudioJSMediaStreamSampleRate = 44100;
 var XAudioJSMozAudioSampleRate = 44100;
-var XAudioJSSamplesPerCallback = 2048;			//Has to be between 2048 and 4096 (If over, then samples are ignored, if under then silence is added).
+var XAudioJSSamplesPerCallback = 4096;			//Has to be between 2048 and 4096 (If over, then samples are ignored, if under then silence is added, 4096 fixes chrome android).
 var XAudioJSFlashTransportEncoder = null;
 var XAudioJSMediaStreamLengthAliasCounter = 0;
 var XAudioJSBinaryString = [];

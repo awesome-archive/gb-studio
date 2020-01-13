@@ -1,4 +1,5 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import { connect } from "react-redux";
 import * as actions from "../../actions";
 import Button, {
@@ -7,6 +8,7 @@ import Button, {
   ButtonToolbarFixedSpacer
 } from "../../components/library/Button";
 import PageContent from "../../components/library/PageContent";
+import l10n from "../../lib/helpers/l10n";
 
 class BuildPage extends Component {
   constructor(props) {
@@ -23,15 +25,18 @@ class BuildPage extends Component {
   }
 
   onClear = () => {
-    this.props.consoleClear();
+    const { consoleClear } = this.props;
+    consoleClear();
   };
 
   onRun = e => {
-    this.props.buildGame();
+    const { buildGame } = this.props;
+    buildGame();
   };
 
   onBuild = buildType => e => {
-    this.props.buildGame({ buildType, exportBuild: true });
+    const { buildGame } = this.props;
+    buildGame({ buildType, exportBuild: true });
   };
 
   scrollToBottom = () => {
@@ -40,7 +45,7 @@ class BuildPage extends Component {
   };
 
   render() {
-    const { output } = this.props;
+    const { output, warnings, status } = this.props;
     return (
       <div
         style={{
@@ -63,21 +68,38 @@ class BuildPage extends Component {
         >
           {output.map((out, index) => (
             <div
+              // eslint-disable-next-line react/no-array-index-key
               key={index}
               style={{ color: out.type === "err" ? "orange" : "white" }}
             >
               {out.text}
             </div>
           ))}
+          {status === "complete" && warnings.length > 0 && (
+            <div>
+              <br />
+              Warnings:
+              {warnings.map((out, index) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <div key={index} style={{ color: "orange" }}>
+                  - {out.text}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <PageContent style={{ padding: 20, flexGrow: 0 }}>
           <ButtonToolbar>
-            <Button onClick={this.onRun}>Run</Button>
+            <Button onClick={this.onRun}>{l10n("BUILD_RUN")}</Button>
             <ButtonToolbarFixedSpacer style={{ width: 10 }} />
-            <Button onClick={this.onBuild("rom")}>Export ROM</Button>
-            <Button onClick={this.onBuild("web")}>Export Web</Button>
+            <Button onClick={this.onBuild("rom")}>
+              {l10n("BUILD_EXPORT_ROM")}
+            </Button>
+            <Button onClick={this.onBuild("web")}>
+              {l10n("BUILD_EXPORT_WEB")}
+            </Button>
             <ButtonToolbarSpacer />
-            <Button onClick={this.onClear}>Clear</Button>
+            <Button onClick={this.onClear}>{l10n("BUILD_CLEAR")}</Button>
           </ButtonToolbar>
         </PageContent>
       </div>
@@ -85,11 +107,29 @@ class BuildPage extends Component {
   }
 }
 
+BuildPage.propTypes = {
+  status: PropTypes.string.isRequired,
+  output: PropTypes.arrayOf(
+    PropTypes.shape({
+      type: PropTypes.string.isRequired,
+      text: PropTypes.string.isRequired
+    })
+  ).isRequired,
+  warnings: PropTypes.arrayOf(
+    PropTypes.shape({
+      type: PropTypes.string.isRequired,
+      text: PropTypes.string.isRequired
+    })
+  ).isRequired,
+  buildGame: PropTypes.func.isRequired,
+  consoleClear: PropTypes.func.isRequired
+};
+
 function mapStateToProps(state) {
   return {
-    projectRoot: state.document && state.document.root,
     status: state.console.status,
-    output: state.console.output
+    output: state.console.output,
+    warnings: state.console.warnings
   };
 }
 

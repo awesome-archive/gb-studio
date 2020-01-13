@@ -1,71 +1,91 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import cx from "classnames";
 import { TriangleIcon } from "../library/Icons";
+import l10n from "../../lib/helpers/l10n";
 
 class InputPicker extends Component {
   render() {
-    const { value, onChange } = this.props;
+    const { id, value, onChange } = this.props;
     const inputs = [
       {
         key: "left",
         name: "Left",
-        label: <TriangleIcon />
+        label: <TriangleIcon />,
+        title: l10n("FIELD_DIRECTION_LEFT")
       },
       {
         key: "up",
         name: "Up",
-        label: <TriangleIcon />
+        label: <TriangleIcon />,
+        title: l10n("FIELD_DIRECTION_UP")
       },
       {
         key: "down",
         name: "Down",
-        label: <TriangleIcon />
+        label: <TriangleIcon />,
+        title: l10n("FIELD_DIRECTION_DOWN")
       },
       {
         key: "right",
         name: "Right",
-        label: <TriangleIcon />
+        label: <TriangleIcon />,
+        title: l10n("FIELD_DIRECTION_RIGHT")
       },
       {
         key: "a",
         name: "A",
-        label: "A"
+        label: "A",
+        title: "A"
       },
       {
         key: "b",
         name: "B",
-        label: "B"
+        label: "B",
+        title: "B"
       },
       {
         key: "start",
         name: "Start",
-        label: "Start"
+        label: "Start",
+        title: "Start"
       },
       {
         key: "select",
         name: "Select",
-        label: "Select"
+        label: "Select",
+        title: "Select"
       }
     ];
 
     return (
-      <div className="InputPicker">
+      <div id={id} className="InputPicker">
         <div className="InputPicker__Row">
-          {inputs.slice(0, 4).map(renderButton(value, onChange))}
+          {inputs.slice(0, 4).map(renderButton(id, value, onChange))}
         </div>
         <div className="InputPicker__Row">
-          {inputs.slice(4, 8).map(renderButton(value, onChange))}
+          {inputs.slice(4, 8).map(renderButton(id, value, onChange))}
         </div>
+        {Array.isArray(value) &&
+          inputs
+            .filter(input => value.indexOf(input.key) > -1)
+            .map(input => input.name)
+            .join(", ")}
       </div>
     );
   }
 }
 
-const renderButton = (value, onChange) => input => (
-  <label key={input.key} title={input.name}>
+const renderButton = (id, value, onChange) => input => (
+  <label htmlFor={`${id}_${input.key}`} key={input.key} title={input.title}>
     <input
+      id={`${id}_${input.key}`}
       type="checkbox"
-      checked={value && value.indexOf && value.indexOf(input.key) > -1}
+      checked={
+        Array.isArray(value)
+          ? value.indexOf && value.indexOf(input.key) > -1
+          : value === input.key
+      }
       onChange={() => {
         if (Array.isArray(value)) {
           if (value.indexOf(input.key) > -1) {
@@ -74,7 +94,7 @@ const renderButton = (value, onChange) => input => (
             onChange([].concat(value, input.key));
           }
         } else {
-          onChange([input.key]);
+          onChange(input.key);
         }
       }}
     />
@@ -82,10 +102,11 @@ const renderButton = (value, onChange) => input => (
       key={input.key}
       className={cx(
         "InputPicker__Button",
-        "InputPicker__Button--" + input.name,
+        `InputPicker__Button--${input.name}`,
         {
-          "InputPicker__Button--Active":
-            value && value.indexOf && value.indexOf(input.key) > -1
+          "InputPicker__Button--Active": Array.isArray(value)
+            ? value.indexOf && value.indexOf(input.key) > -1
+            : value === input.key
         }
       )}
     >
@@ -93,5 +114,19 @@ const renderButton = (value, onChange) => input => (
     </div>
   </label>
 );
+
+InputPicker.propTypes = {
+  id: PropTypes.string,
+  value: PropTypes.oneOfType([
+    PropTypes.string,
+    PropTypes.arrayOf(PropTypes.string)
+  ]),
+  onChange: PropTypes.func.isRequired
+};
+
+InputPicker.defaultProps = {
+  id: undefined,
+  value: ""
+};
 
 export default InputPicker;

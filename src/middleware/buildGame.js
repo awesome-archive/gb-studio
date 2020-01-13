@@ -1,7 +1,6 @@
-import { ipcRenderer, remote, shell } from "electron";
-import open from "open";
+import { ipcRenderer, remote } from "electron";
 import uuid from "uuid/v4";
-import fs from "fs-extra";
+import Path from "path";
 import buildProject from "../lib/compiler/buildProject";
 import {
   BUILD_GAME,
@@ -11,8 +10,9 @@ import {
   CMD_STD_OUT,
   CMD_STD_ERR
 } from "../actions/actionTypes";
-import Path from "path";
 import copy from "../lib/helpers/fsCopy";
+import { denormalizeProject } from "../reducers/entitiesReducer";
+import getTmp from "../lib/helpers/getTmp";
 
 const buildUUID = uuid();
 
@@ -25,16 +25,14 @@ export default store => next => async action => {
     try {
       const state = store.getState();
       const projectRoot = state.document && state.document.root;
-      const project = state.project.present;
-      const outputRoot = Path.normalize(
-        remote.app.getPath("temp") + "/" + buildUUID
-      );
+      const project = denormalizeProject(state.entities.present);
+      const outputRoot = Path.normalize(`${getTmp()}/${buildUUID}`);
 
       await buildProject(project, {
         projectRoot,
         buildType,
         outputRoot,
-        tmpPath: remote.app.getPath("temp"),
+        tmpPath: getTmp(),
         progress: message => {
           if (
             message !== "'" &&
@@ -53,24 +51,26 @@ export default store => next => async action => {
           `${outputRoot}/build/${buildType}`,
           `${projectRoot}/build/${buildType}`
         );
-        open(`${projectRoot}/build/${buildType}`);
+        remote.shell.openItem(`${projectRoot}/build/${buildType}`);
         dispatch({
           type: CMD_STD_OUT,
           text: "-"
         });
         dispatch({
           type: CMD_STD_OUT,
-          text:
-            "Success! " +
-            (buildType === "web"
-              ? "Site is ready at " +
-                Path.normalize(`${projectRoot}/build/web/index.html`)
-              : "ROM is ready at " +
-                Path.normalize(`${projectRoot}/build/rom/game.gb`))
+          text: `Success! ${
+            buildType === "web"
+              ? `Site is ready at ${Path.normalize(
+                  `${projectRoot}/build/web/index.html`
+                )}`
+              : `ROM is ready at ${Path.normalize(
+                  `${projectRoot}/build/rom/game.gb`
+                )}`
+          }`
         });
       } else if (ejectBuild) {
         await copy(`${outputRoot}`, `${projectRoot}/eject`);
-        open(`${projectRoot}/eject`);
+        remote.shell.openItem(`${projectRoot}/eject`);
       }
 
       dispatch({ type: CMD_COMPLETE });

@@ -3,6 +3,7 @@
 
   --toolbar-top-color: #e8e7e8;
   --toolbar-bottom-color: #d1d0d1;
+  --toolbar-background-color: #f0f0f0;
   --toolbar-border-color: #abaaab;
   --toolbar-inactive-color: #f6f6f6;
   --toolbar-inactive-border-color: #d1d1d1;
@@ -53,4 +54,13 @@
   --conditional-level2: #ffccbc;
   --conditional-level3: #c8e6c9;
   --conditional-level4: #d1c4e9;
+
+  --script-command-bg-color-alt: #dedede;
+  --conditional-level1-alt: #81d4fa;
+  --conditional-level2-alt: #ffab91;
+  --conditional-level3-alt: #a5d6a7;
+  --conditional-level4-alt: #b39ddb;
+
+  --comment-event-color: #dcedc8;
+  --comment-event-color-alt: #c5e1a5;
 }

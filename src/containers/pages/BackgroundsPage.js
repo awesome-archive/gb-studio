@@ -1,8 +1,10 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import { connect } from "react-redux";
 import FilesSidebar from "../../components/assets/FilesSidebar";
 import ImageViewer from "../../components/assets/ImageViewer";
 import * as actions from "../../actions";
+import { getBackgrounds } from "../../reducers/entitiesReducer";
 
 class ImagesPage extends Component {
   constructor(props) {
@@ -19,27 +21,27 @@ class ImagesPage extends Component {
   };
 
   render() {
-    const { files, id } = this.props;
+    const { files, id, openHelp } = this.props;
     const { query } = this.state;
 
     const filesList = query
-      ? files.filter(file => {
-          return file.name.toUpperCase().indexOf(query.toUpperCase()) > -1;
+      ? files.filter(f => {
+          return f.name.toUpperCase().indexOf(query.toUpperCase()) > -1;
         })
       : files;
 
-    const file = filesList.find(file => file.id === id) || filesList[0];
+    const file = filesList.find(f => f.id === id) || filesList[0];
 
     return (
       <div>
-        <ImageViewer file={file} />
+        {file && <ImageViewer file={file} />}
         <FilesSidebar
           files={filesList}
           selectedFile={file}
           query={query}
           onSearch={this.onSearch}
           onAdd={() => {
-            this.props.openHelp("backgrounds");
+            openHelp("backgrounds");
           }}
         />
       </div>
@@ -47,12 +49,24 @@ class ImagesPage extends Component {
   }
 }
 
+ImagesPage.propTypes = {
+  id: PropTypes.string,
+  files: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string.isRequired,
+      name: PropTypes.string.isRequired
+    })
+  ).isRequired,
+  openHelp: PropTypes.func.isRequired
+};
+
+ImagesPage.defaultProps = {
+  id: ""
+};
+
 function mapStateToProps(state) {
   const { id } = state.navigation;
-  const files =
-    state.project.present && state.project.present.backgrounds
-      ? state.project.present.backgrounds
-      : [];
+  const files = getBackgrounds(state);
   return {
     files,
     id

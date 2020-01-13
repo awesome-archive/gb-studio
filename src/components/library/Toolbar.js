@@ -1,4 +1,5 @@
 import React, { Component } from "react";
+import PropTypes from "prop-types";
 import { Menu, MenuOverlay } from "./Menu";
 import { TriangleIcon } from "./Icons";
 
@@ -26,7 +27,11 @@ export class ToolbarDropdownButton extends Component {
   }
 
   toggleOpen = () => {
-    this.setState({ open: !this.state.open });
+    this.setState(prevState => {
+      return {
+        open: !prevState.open
+      };
+    });
   };
 
   render() {
@@ -53,3 +58,17 @@ export class ToolbarDropdownButton extends Component {
     );
   }
 }
+
+ToolbarDropdownButton.propTypes = {
+  children: PropTypes.node,
+  label: PropTypes.node,
+  showArrow: PropTypes.bool,
+  right: PropTypes.bool
+};
+
+ToolbarDropdownButton.defaultProps = {
+  children: undefined,
+  label: "",
+  showArrow: true,
+  right: false
+};

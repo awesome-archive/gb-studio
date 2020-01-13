@@ -1,13 +1,19 @@
-import electron, { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import installExtension, {
   REACT_DEVELOPER_TOOLS,
   REDUX_DEVTOOLS
 } from "electron-devtools-installer";
 import { enableLiveReload, addBypassChecker } from "electron-compile";
 import windowStateKeeper from "electron-window-state";
+import settings from "electron-settings";
+import Path from "path";
+import { stat } from "fs-extra";
 import menu from "./menu";
+import { checkForUpdate } from "./lib/helpers/updateChecker";
+import switchLanguageDialog from "./lib/electron/dialog/switchLanguageDialog";
 
 // Stop app launching during squirrel install
+// eslint-disable-next-line global-require
 if (require("electron-squirrel-startup")) {
   app.quit();
 }
@@ -17,8 +23,11 @@ if (require("electron-squirrel-startup")) {
 let mainWindow = null;
 let splashWindow = null;
 let playWindow = null;
+let hasCheckedForUpdate = false;
 
 const isDevMode = process.execPath.match(/[\\/]electron/);
+
+const validProjectExt = [".json", ".gbsproj"];
 
 // Allow images and json outside of application package to be loaded in production build
 addBypassChecker(filePath => {
@@ -34,7 +43,7 @@ addBypassChecker(filePath => {
   );
 });
 
-const createSplash = async () => {
+const createSplash = async (forceNew = false) => {
   // Create the browser window.
   splashWindow = new BrowserWindow({
     width: 700,
@@ -51,11 +60,17 @@ const createSplash = async () => {
   });
 
   splashWindow.setMenu(null);
-  splashWindow.loadURL(`file://${__dirname}/windows/splash.html`);
+  splashWindow.loadURL(
+    `file://${__dirname}/windows/splash.html?new=${forceNew}`
+  );
 
-  splashWindow.webContents.on("did-finish-load", function() {
-    setTimeout(function() {
+  splashWindow.webContents.on("did-finish-load", () => {
+    setTimeout(() => {
       splashWindow.show();
+      if (!hasCheckedForUpdate) {
+        hasCheckedForUpdate = true;
+        checkForUpdate();
+      }
     }, 40);
   });
 
@@ -65,7 +80,7 @@ const createSplash = async () => {
 };
 
 const createWindow = async projectPath => {
-  let mainWindowState = windowStateKeeper({
+  const mainWindowState = windowStateKeeper({
     defaultWidth: 1000,
     defaultHeight: 800
   });
@@ -106,10 +121,9 @@ const createWindow = async projectPath => {
 
   mainWindow.setRepresentedFilename(projectPath);
 
-  mainWindow.webContents.on("did-finish-load", function() {
-    mainWindow.webContents.send("ping", "whoooooooh!");
+  mainWindow.webContents.on("did-finish-load", () => {
     mainWindow.webContents.send("open-project", projectPath);
-    setTimeout(function() {
+    setTimeout(() => {
       mainWindow.show();
     }, 40);
   });
@@ -122,23 +136,42 @@ const createWindow = async projectPath => {
     mainWindow.webContents.send("leave-full-screen");
   });
 
+  mainWindow.on("page-title-updated", (e, title) => {
+    mainWindow.name = title;
+  });
+
   mainWindow.on("close", e => {
     if (mainWindow.documentEdited) {
-      const choice = require("electron").dialog.showMessageBox(mainWindow, {
+      // eslint-disable-next-line global-require
+      const l10n = require("./lib/helpers/l10n").default;
+      const choice = dialog.showMessageBox(mainWindow, {
         type: "question",
-        buttons: ["Quit", "Cancel"],
-        title: "Confirm",
-        message:
-          "You have unsaved changes, are you sure you want to close this project?"
+        buttons: [
+          l10n("DIALOG_SAVE"),
+          l10n("DIALOG_CANCEL"),
+          l10n("DIALOG_DONT_SAVE")
+        ],
+        defaultId: 0,
+        cancelId: 1,
+        message: l10n("DIALOG_SAVE_CHANGES", { name: mainWindow.name }),
+        detail: l10n("DIALOG_SAVE_WARNING")
       });
-      if (choice == 1) {
-        return e.preventDefault();
+      if (choice === 0) {
+        // Save
+        e.preventDefault();
+        mainWindow.webContents.send("save-project-and-close");
+      } else if (choice === 1) {
+        // Cancel
+        e.preventDefault();
+      } else {
+        // Don't Save
       }
     }
   });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    menu.buildMenu([]);
   });
 };
 
@@ -151,6 +184,8 @@ const openHelp = async helpPage => {
     shell.openExternal("https://www.gbstudio.dev/docs/ui-elements/");
   } else if (helpPage === "music") {
     shell.openExternal("https://www.gbstudio.dev/docs/music/");
+  } else if (helpPage === "error") {
+    shell.openExternal("https://www.gbstudio.dev/docs/error/");
   }
 };
 
@@ -193,7 +228,21 @@ app.on("ready", async () => {
     await installExtension(REDUX_DEVTOOLS);
   }
 
-  createSplash();
+  const lastArg = process.argv[process.argv.length - 1];
+  if (
+    process.argv.length >= 2 &&
+    lastArg !== "." &&
+    lastArg.indexOf("-") !== 0
+  ) {
+    openProject(lastArg);
+  } else if (splashWindow === null && mainWindow === null) {
+    createSplash();
+  }
+});
+
+app.on("open-file", async (e, projectPath) => {
+  await app.whenReady();
+  openProject(projectPath);
 });
 
 // Quit when all windows are closed.
@@ -219,15 +268,30 @@ ipcMain.on("open-project", async (event, arg) => {
 });
 
 ipcMain.on("check-full-screen", async (event, arg) => {
-  if (mainWindow.isFullScreen()) {
-    mainWindow.webContents.send("enter-full-screen");
-  } else {
-    mainWindow.webContents.send("leave-full-screen");
+  if (mainWindow) {
+    if (mainWindow.isFullScreen()) {
+      mainWindow.webContents.send("enter-full-screen");
+    } else {
+      mainWindow.webContents.send("leave-full-screen");
+    }
   }
 });
 
 ipcMain.on("open-project-picker", async (event, arg) => {
   openProjectPicker();
+});
+
+ipcMain.on("request-recent-projects", async event => {
+  splashWindow &&
+    splashWindow.webContents.send(
+      "recent-projects",
+      settings.get("recentProjects")
+    );
+});
+
+ipcMain.on("clear-recent-projects", async event => {
+  settings.set("recentProjects", []);
+  app.clearRecentDocuments();
 });
 
 ipcMain.on("open-help", async (event, helpPage) => {
@@ -249,10 +313,43 @@ ipcMain.on("document-unmodified", () => {
 });
 
 ipcMain.on("project-loaded", (event, project) => {
-  menu.ref.getMenuItemById("showCollisions").checked =
-    project.settings.showCollisions;
-  menu.ref.getMenuItemById("showConnections").checked =
-    project.settings.showConnections;
+  const { showCollisions, showConnections } = project.settings;
+  menu.ref().getMenuItemById("showCollisions").checked = showCollisions;
+  menu.ref().getMenuItemById("showConnections").checked = showConnections;
+});
+
+ipcMain.on("set-menu-plugins", (event, plugins) => {
+  // eslint-disable-next-line global-require
+  const l10n = require("./lib/helpers/l10n").default;
+  const distinct = (value, index, self) => self.indexOf(value) === index;
+
+  const pluginValues = Object.values(plugins);
+
+  const pluginNames = pluginValues
+    .map(plugin => plugin.plugin)
+    .filter(distinct);
+
+  menu.buildMenu(
+    pluginNames.map(pluginName => {
+      return {
+        label: pluginName,
+        submenu: pluginValues
+          .filter(plugin => {
+            return plugin.plugin === pluginName;
+          })
+          .map(plugin => {
+            return {
+              label: l10n(plugin.id) || plugin.name || plugin.name,
+              accelerator: plugin.accelerator,
+              click() {
+                mainWindow &&
+                  mainWindow.webContents.send("plugin-run", plugin.id);
+              }
+            };
+          })
+      };
+    })
+  );
 });
 
 menu.on("new", async () => {
@@ -279,6 +376,10 @@ menu.on("section", async section => {
   mainWindow && mainWindow.webContents.send("section", section);
 });
 
+menu.on("reloadAssets", () => {
+  mainWindow && mainWindow.webContents.send("reloadAssets");
+});
+
 menu.on("zoom", zoomType => {
   mainWindow && mainWindow.webContents.send("zoom", zoomType);
 });
@@ -291,15 +392,36 @@ menu.on("build", buildType => {
   mainWindow && mainWindow.webContents.send("build", buildType);
 });
 
+menu.on("checkUpdates", () => {
+  checkForUpdate(true);
+});
+
 menu.on("updateSetting", (setting, value) => {
-  mainWindow && mainWindow.webContents.send("updateSetting", setting, value);
+  settings.set(setting, value);
+  if (setting === "theme") {
+    menu.ref().getMenuItemById("themeDefault").checked = value === undefined;
+    menu.ref().getMenuItemById("themeLight").checked = value === "light";
+    menu.ref().getMenuItemById("themeDark").checked = value === "dark";
+    splashWindow && splashWindow.webContents.send("update-theme", value);
+    mainWindow && mainWindow.webContents.send("update-theme", value);
+  } else if (setting === "locale") {
+    const locales = require("./lib/helpers/l10n").locales;
+    menu.ref().getMenuItemById("localeDefault").checked = value === undefined;
+    for (let locale of locales) {
+      menu.ref().getMenuItemById(`locale-${locale}`).checked = value === locale;
+    }
+    switchLanguageDialog();
+  } else {
+    mainWindow && mainWindow.webContents.send("updateSetting", setting, value);
+  }
 });
 
 const newProject = async () => {
   if (splashWindow) {
-    splashWindow.reload();
+    splashWindow.close();
+    await createSplash(true);
   } else {
-    await createSplash();
+    await createSplash(true);
     if (mainWindow) {
       mainWindow.close();
     }
@@ -312,7 +434,7 @@ const openProjectPicker = async () => {
     filters: [
       {
         name: "Projects",
-        extensions: "json"
+        extensions: ["gbsproj", "json"]
       }
     ]
   });
@@ -322,9 +444,42 @@ const openProjectPicker = async () => {
 };
 
 const openProject = async projectPath => {
-  let oldMainWindow = mainWindow;
+  // eslint-disable-next-line global-require
+  const l10n = require("./lib/helpers/l10n").default;
+  const ext = Path.extname(projectPath);
+  if (validProjectExt.indexOf(ext) === -1) {
+    dialog.showErrorBox(
+      l10n("ERROR_INVALID_FILE_TYPE"),
+      l10n("ERROR_OPEN_GBSPROJ_FILE")
+    );
+    return;
+  }
+
+  try {
+    await stat(projectPath);
+  } catch (e) {
+    dialog.showErrorBox(
+      l10n("ERROR_MISSING_PROJECT"),
+      l10n("ERROR_MOVED_OR_DELETED")
+    );
+    return;
+  }
+
+  // Store recent projects
+  settings.set(
+    "recentProjects",
+    []
+      .concat(settings.get("recentProjects") || [], projectPath)
+      .reverse()
+      .filter((filename, index, arr) => arr.indexOf(filename) === index) // Only unique
+      .reverse()
+      .slice(-10)
+  );
+  app.addRecentDocument(projectPath);
+
+  const oldMainWindow = mainWindow;
   await createWindow(projectPath);
-  let newMainWindow = mainWindow;
+  const newMainWindow = mainWindow;
   if (splashWindow) {
     splashWindow.close();
   }
