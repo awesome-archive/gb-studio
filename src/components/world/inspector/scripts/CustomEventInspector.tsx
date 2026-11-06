@@ -1,0 +1,560 @@
+import React, { useCallback, useMemo, useState } from "react";
+import ScriptEditor from "components/script/ScriptEditor";
+import { DropdownButton } from "ui/buttons/DropdownButton";
+import { MenuDivider, MenuItem } from "ui/menu/Menu";
+import { WorldInspector } from "components/world/inspector/WorldInspector";
+import ScriptEditorDropdownButton from "components/script/menus/ScriptEditorDropdownButton";
+import { customEventSelectors } from "store/features/entities/entitiesSelectors";
+import editorActions from "store/features/editor/editorActions";
+import entitiesActions from "store/features/entities/entitiesActions";
+import { Sidebar, SidebarColumn, SidebarColumns } from "ui/sidebars/Sidebar";
+import {
+  FormContainer,
+  FormDivider,
+  FormHeader,
+  FormRow,
+  FormSectionTitle,
+} from "ui/form/layout/FormLayout";
+import { EditableText, EditableTextOverlay } from "ui/form/EditableText";
+import { ScriptNormalized } from "shared/lib/entities/entitiesTypes";
+import { StickyTabs, TabBar } from "ui/tabs/Tabs";
+import { Button } from "ui/buttons/Button";
+import { BlankIcon, CheckIcon, LockIcon, LockOpenIcon } from "ui/icons/Icons";
+import { CustomEventSymbolsEditor } from "components/forms/symbols/CustomEventSymbolsEditor";
+import { SymbolEditorWrapper } from "components/forms/symbols/SymbolEditorWrapper";
+import { NoteField } from "ui/form/NoteField";
+import { InputGroup, InputGroupAppend } from "ui/form/InputGroup";
+import { Input } from "ui/form/Input";
+import { Label } from "ui/form/Label";
+import { ScriptEditorContext } from "components/script/context/ScriptEditorContext";
+import l10n from "shared/lib/lang/l10n";
+import { useAppDispatch, useAppSelector } from "store/hooks";
+import { ScriptEditorCtx } from "shared/lib/scripts/context";
+import { FlexGrow } from "ui/spacing/Spacing";
+import CachedScroll from "ui/util/CachedScroll";
+import { ScriptUsesList } from "components/world/inspector/scripts/ScriptUsesList";
+import { SplitPaneHeader } from "ui/splitpane/SplitPaneHeader";
+import { customEventName } from "shared/lib/entities/entitiesHelpers";
+import styled from "styled-components";
+import type { ScriptVariable } from "shared/lib/resources/types";
+import { NumberInput } from "ui/form/NumberInput";
+import { VariableIndexBracket } from "components/forms/VariableIndexInput";
+
+interface CustomEventInspectorProps {
+  id: string;
+}
+
+const FlexWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+`;
+
+const UsesCollapsedWrapper = styled.div`
+  position: sticky;
+  bottom: -1px;
+  left: 0;
+  right: 17px;
+  border-top: 1px solid ${(props) => props.theme.colors.input.border};
+`;
+
+const ArrayLengthDivider = styled.div<{ $closing?: boolean }>`
+  border-right: 1px solid ${(props) => props.theme.colors.input.border};
+`;
+
+export const CustomEventInspector = ({ id }: CustomEventInspectorProps) => {
+  const customEvents = useAppSelector((state) =>
+    customEventSelectors.selectAll(state),
+  );
+  const customEvent = useAppSelector((state) =>
+    customEventSelectors.selectById(state, id),
+  );
+  const index = React.useMemo(
+    () => customEvents.findIndex((p) => p.id === id),
+    [customEvents, id],
+  );
+  const lockScriptEditor = useAppSelector(
+    (state) => state.editor.lockScriptEditor,
+  );
+
+  const [showSymbols, setShowSymbols] = useState(false);
+  const showUses = useAppSelector((state) => state.editor.showScriptUses);
+
+  const dispatch = useAppDispatch();
+
+  const scriptTabs = useMemo(
+    () => ({
+      script: l10n("SIDEBAR_CUSTOM_EVENT_SCRIPT"),
+    }),
+    [],
+  );
+
+  const onChangeCustomEventProp = useCallback(
+    <K extends keyof ScriptNormalized>(key: K, value: ScriptNormalized[K]) => {
+      dispatch(
+        entitiesActions.editCustomEvent({
+          customEventId: id,
+          changes: {
+            [key]: value,
+          },
+        }),
+      );
+    },
+    [dispatch, id],
+  );
+
+  const onChangeName = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      onChangeCustomEventProp("name", e.currentTarget.value),
+    [onChangeCustomEventProp],
+  );
+
+  const onChangeDescription = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) =>
+      onChangeCustomEventProp("description", e.currentTarget.value),
+    [onChangeCustomEventProp],
+  );
+
+  const onEditVariableName = useCallback(
+    (key: string): React.ChangeEventHandler<HTMLInputElement> =>
+      (e) => {
+        if (!customEvent) {
+          return;
+        }
+        const variable = customEvent.variables[key];
+        if (!variable) {
+          return;
+        }
+
+        onChangeCustomEventProp(
+          "variables",
+          Object.assign({}, customEvent.variables, {
+            [key]: {
+              ...variable,
+              name: e.currentTarget.value,
+            },
+          }),
+        );
+      },
+    [customEvent, onChangeCustomEventProp],
+  );
+
+  const onEditVariablePassByReference = useCallback(
+    (key: string, passByReference: ScriptVariable["passByReference"]) => {
+      if (!customEvent) {
+        return;
+      }
+      dispatch(
+        entitiesActions.editCustomEventVariablePassByReference({
+          customEventId: id,
+          variableId: key,
+          passByReference,
+        }),
+      );
+    },
+    [customEvent, dispatch, id],
+  );
+
+  const onEditVariableLength = useCallback(
+    (key: string): React.ChangeEventHandler<HTMLInputElement> =>
+      (e) => {
+        if (!customEvent) {
+          return;
+        }
+        const variable = customEvent.variables[key];
+        if (!variable) {
+          return;
+        }
+        const parsedLength = e.currentTarget.valueAsNumber;
+        const length =
+          Number.isInteger(parsedLength) && parsedLength > 0 ? parsedLength : 1;
+        dispatch(
+          entitiesActions.editCustomEventVariableLength({
+            customEventId: id,
+            variableId: key,
+            length,
+          }),
+        );
+      },
+    [customEvent, dispatch, id],
+  );
+
+  const onEditActorName = useCallback(
+    (key: string): React.ChangeEventHandler<HTMLInputElement> =>
+      (e) => {
+        if (!customEvent) {
+          return;
+        }
+        const actor = customEvent.actors[key];
+        if (!actor) {
+          return;
+        }
+
+        onChangeCustomEventProp(
+          "actors",
+          Object.assign({}, customEvent.actors, {
+            [key]: {
+              ...actor,
+              name: e.currentTarget.value,
+            },
+          }),
+        );
+      },
+    [customEvent, onChangeCustomEventProp],
+  );
+
+  const onRemove = React.useCallback(() => {
+    if (!customEvent) {
+      return;
+    }
+    dispatch(entitiesActions.confirmRemoveCustomEvent(customEvent.id));
+  }, [dispatch, customEvent]);
+
+  const onToggleLockScriptEditor = useCallback(() => {
+    dispatch(editorActions.setLockScriptEditor(!lockScriptEditor));
+  }, [dispatch, lockScriptEditor]);
+
+  const selectSidebar = () => dispatch(editorActions.selectSidebar());
+
+  const scriptCtx: ScriptEditorCtx = useMemo(
+    () => ({
+      type: "script",
+      entityType: "customEvent",
+      entityId: id,
+      sceneId: "",
+      scriptKey: "script",
+    }),
+    [id],
+  );
+
+  const setShowUses = useCallback(
+    (value: boolean) => {
+      dispatch(editorActions.setShowScriptUses(value));
+    },
+    [dispatch],
+  );
+
+  if (!customEvent) {
+    return <WorldInspector />;
+  }
+
+  const lockButton = (
+    <Button
+      size="small"
+      variant={lockScriptEditor ? "primary" : "transparent"}
+      onClick={onToggleLockScriptEditor}
+      title={
+        lockScriptEditor
+          ? l10n("FIELD_UNLOCK_SCRIPT_EDITOR")
+          : l10n("FIELD_LOCK_SCRIPT_EDITOR")
+      }
+    >
+      {lockScriptEditor ? <LockIcon /> : <LockOpenIcon />}
+    </Button>
+  );
+
+  const scriptButton = (
+    <ScriptEditorDropdownButton
+      value={customEvent.script}
+      type="customEvent"
+      entityId={customEvent.id}
+      scriptKey={"script"}
+    />
+  );
+
+  const customEventVariables = Object.values(customEvent.variables);
+  const customEventActors = Object.values(customEvent.actors);
+
+  return (
+    <Sidebar onClick={selectSidebar}>
+      <CachedScroll key={customEvent.id} cacheKey={customEvent.id}>
+        <FlexWrapper>
+          {(!lockScriptEditor || showUses) && (
+            <FormContainer>
+              <FormHeader>
+                <FlexGrow style={{ minWidth: 0 }}>
+                  <EditableText
+                    name="name"
+                    placeholder={customEventName(customEvent, index)}
+                    value={customEvent.name || ""}
+                    onChange={onChangeName}
+                  />
+                  <EditableTextOverlay>
+                    {customEventName(customEvent, index).replace(/.*[/\\]/, "")}
+                  </EditableTextOverlay>
+                </FlexGrow>
+                <DropdownButton
+                  size="small"
+                  variant="transparent"
+                  menuDirection="right"
+                >
+                  {!showSymbols && !showUses && (
+                    <MenuItem
+                      onClick={() => setShowSymbols(true)}
+                      icon={<BlankIcon />}
+                    >
+                      {l10n("FIELD_VIEW_GBVM_SYMBOLS")}
+                    </MenuItem>
+                  )}
+                  {!showUses && <MenuDivider key="div-view-mode" />}
+                  <MenuItem
+                    key="view-editor"
+                    onClick={() => setShowUses(false)}
+                    icon={!showUses ? <CheckIcon /> : <BlankIcon />}
+                  >
+                    {l10n("MENU_EDIT_CUSTOM_EVENT")}
+                  </MenuItem>
+                  <MenuItem
+                    key="view-uses"
+                    onClick={() => setShowUses(true)}
+                    icon={showUses ? <CheckIcon /> : <BlankIcon />}
+                  >
+                    {l10n("FIELD_VIEW_SCRIPT_USES")}
+                  </MenuItem>
+                  <MenuDivider />
+                  <MenuItem onClick={onRemove} icon={<BlankIcon />}>
+                    {l10n("MENU_DELETE_CUSTOM_EVENT")}
+                  </MenuItem>
+                </DropdownButton>
+              </FormHeader>
+            </FormContainer>
+          )}
+          {showUses ? (
+            <ScriptUsesList id={id} onClose={() => setShowUses(false)} />
+          ) : (
+            <>
+              {!lockScriptEditor && (
+                <SidebarColumns>
+                  <SidebarColumn>
+                    <FormContainer>
+                      {showSymbols && (
+                        <>
+                          <SymbolEditorWrapper>
+                            <CustomEventSymbolsEditor id={customEvent.id} />
+                          </SymbolEditorWrapper>
+                          <FormDivider />
+                        </>
+                      )}
+
+                      <FormRow>
+                        <NoteField
+                          value={customEvent.description || ""}
+                          onChange={onChangeDescription}
+                        />
+                      </FormRow>
+                    </FormContainer>
+                  </SidebarColumn>
+
+                  {(customEventVariables.length > 0 ||
+                    customEventActors.length > 0) && (
+                    <>
+                      {customEventVariables.length > 0 &&
+                        customEventActors.length > 0 && (
+                          <FormSectionTitle noMarginBottom>
+                            {l10n("SIDEBAR_PARAMETERS")}
+                          </FormSectionTitle>
+                        )}
+
+                      {customEventVariables.length > 0 && (
+                        <SidebarColumn>
+                          {customEventActors.length === 0 && (
+                            <FormSectionTitle>
+                              {l10n("SIDEBAR_PARAMETERS")}
+                            </FormSectionTitle>
+                          )}
+
+                          <FormRow>
+                            <Label htmlFor="variable[0]">
+                              {l10n("FIELD_VARIABLES")}:{" "}
+                              {`${customEventVariables.length}/10`}
+                            </Label>
+                          </FormRow>
+
+                          {customEventVariables.map((variable, i) => {
+                            if (!variable) {
+                              return null;
+                            }
+                            const isArrayReference =
+                              variable.passByReference === "array";
+                            const isReference =
+                              variable.passByReference === true;
+                            const passTypeLabel = isArrayReference
+                              ? l10n("FIELD_PASS_BY_ARRAY_REFERENCE_SHORT")
+                              : isReference
+                                ? l10n("FIELD_PASS_BY_REFERENCE_SHORT")
+                                : l10n("FIELD_PASS_BY_VALUE_SHORT");
+                            const passTypeDescription = isArrayReference
+                              ? l10n(
+                                  "FIELD_PASS_BY_ARRAY_REFERENCE_DESCRIPTION",
+                                )
+                              : isReference
+                                ? l10n("FIELD_PASS_BY_REFERENCE_DESCRIPTION")
+                                : l10n("FIELD_PASS_BY_VALUE_DESCRIPTION");
+                            return (
+                              <FormRow key={variable.id}>
+                                <InputGroup>
+                                  <Input
+                                    id={`variable[${i}]`}
+                                    value={variable.name}
+                                    placeholder={l10n("FIELD_VARIABLE_NAME")}
+                                    onChange={onEditVariableName(variable.id)}
+                                  />
+                                  {variable.passByReference === "array" && (
+                                    <>
+                                      <VariableIndexBracket $type="open" />
+                                      <NumberInput
+                                        id={`variable[${i}].length`}
+                                        value={variable.length}
+                                        placeholder={l10n("FIELD_LENGTH")}
+                                        onChange={onEditVariableLength(
+                                          variable.id,
+                                        )}
+                                        min={1}
+                                      />
+                                      <VariableIndexBracket $type="close" />
+                                      <ArrayLengthDivider />
+                                    </>
+                                  )}
+                                  <InputGroupAppend>
+                                    <DropdownButton
+                                      label={
+                                        <span
+                                          style={{
+                                            minWidth: 50,
+                                            textAlign: "left",
+                                          }}
+                                        >
+                                          {passTypeLabel}
+                                        </span>
+                                      }
+                                      title={passTypeDescription}
+                                    >
+                                      <MenuItem
+                                        onClick={() =>
+                                          onEditVariablePassByReference(
+                                            variable.id,
+                                            false,
+                                          )
+                                        }
+                                        icon={
+                                          variable.passByReference === false ? (
+                                            <CheckIcon />
+                                          ) : (
+                                            <BlankIcon />
+                                          )
+                                        }
+                                      >
+                                        {l10n("FIELD_PASS_BY_VALUE")}
+                                      </MenuItem>
+                                      <MenuItem
+                                        onClick={() =>
+                                          onEditVariablePassByReference(
+                                            variable.id,
+                                            true,
+                                          )
+                                        }
+                                        icon={
+                                          isReference ? (
+                                            <CheckIcon />
+                                          ) : (
+                                            <BlankIcon />
+                                          )
+                                        }
+                                      >
+                                        {l10n("FIELD_PASS_BY_REFERENCE")}
+                                      </MenuItem>
+                                      <MenuItem
+                                        onClick={() =>
+                                          onEditVariablePassByReference(
+                                            variable.id,
+                                            "array",
+                                          )
+                                        }
+                                        icon={
+                                          isArrayReference ? (
+                                            <CheckIcon />
+                                          ) : (
+                                            <BlankIcon />
+                                          )
+                                        }
+                                      >
+                                        {l10n("FIELD_PASS_BY_ARRAY_REFERENCE")}
+                                      </MenuItem>
+                                    </DropdownButton>
+                                  </InputGroupAppend>
+                                </InputGroup>
+                              </FormRow>
+                            );
+                          })}
+                        </SidebarColumn>
+                      )}
+                      {customEventActors.length > 0 && (
+                        <SidebarColumn>
+                          {customEventVariables.length === 0 && (
+                            <FormSectionTitle>
+                              {l10n("SIDEBAR_PARAMETERS")}
+                            </FormSectionTitle>
+                          )}
+
+                          <FormRow>
+                            <Label htmlFor="actor[0]">
+                              {l10n("FIELD_ACTORS")}:{" "}
+                              {`${customEventActors.length}/10`}
+                            </Label>
+                          </FormRow>
+                          {customEventActors.map((actor, i) => {
+                            if (!actor) {
+                              return null;
+                            }
+                            return (
+                              <FormRow key={actor.id}>
+                                <Input
+                                  id={`actor[${i}]`}
+                                  value={actor.name}
+                                  placeholder="Actor Name"
+                                  onChange={onEditActorName(actor.id)}
+                                />
+                              </FormRow>
+                            );
+                          })}
+                        </SidebarColumn>
+                      )}
+                    </>
+                  )}
+                </SidebarColumns>
+              )}
+              <StickyTabs>
+                <TabBar
+                  values={scriptTabs}
+                  buttons={
+                    <>
+                      {lockButton}
+                      {scriptButton}
+                    </>
+                  }
+                />
+              </StickyTabs>
+              <ScriptEditorContext.Provider value={scriptCtx}>
+                <ScriptEditor value={customEvent.script} />
+              </ScriptEditorContext.Provider>
+            </>
+          )}
+          {!showUses && (
+            <>
+              <FlexGrow />
+              <UsesCollapsedWrapper>
+                <SplitPaneHeader
+                  collapsed={true}
+                  onToggle={() => setShowUses(true)}
+                  borderBottom={false}
+                >
+                  {l10n("SIDEBAR_SCRIPT_USES")}
+                </SplitPaneHeader>
+              </UsesCollapsedWrapper>
+            </>
+          )}
+        </FlexWrapper>
+      </CachedScroll>
+    </Sidebar>
+  );
+};

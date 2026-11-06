@@ -1,0 +1,3133 @@
+import {
+  PrecompiledValueFetch,
+  ScriptValue,
+  ScriptValueAtom,
+  isScriptValue,
+} from "../../src/shared/lib/scriptValue/types";
+import {
+  addScriptValueConst,
+  addScriptValueToScriptValue,
+  constantInScriptValue,
+  expressionToScriptValue,
+  extractScriptValueVariableUses,
+  extractScriptValueVariables,
+  mapScriptValue,
+  multiplyScriptValueConst,
+  optimiseScriptValue,
+  peepholeRPN,
+  precompileScriptValue,
+  someInScriptValue,
+  sortFetchOperations,
+  variableInScriptValue,
+  walkScriptValue,
+} from "../../src/shared/lib/scriptValue/helpers";
+
+test("should perform constant folding for addition", () => {
+  const input: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "number",
+      value: 5,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 8,
+  });
+});
+
+test("should not perform constant folding when one or more inputs is not constant", () => {
+  const input: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "number",
+      value: 5,
+    },
+    valueB: {
+      type: "variable",
+      value: "L0",
+    },
+  };
+  const input2: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "number",
+      value: 5,
+    },
+  };
+  const input3: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "variable",
+      value: "L0",
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "number",
+      value: 5,
+    },
+    valueB: {
+      type: "variable",
+      value: "L0",
+    },
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "number",
+      value: 5,
+    },
+  });
+  expect(optimiseScriptValue(input3)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "variable",
+      value: "L0",
+    },
+  });
+});
+
+test("should perform constant folding for subtraction", () => {
+  const input: ScriptValue = {
+    type: "sub",
+    valueA: {
+      type: "number",
+      value: 5,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 2,
+  });
+});
+
+test("should perform constant folding for multiplication", () => {
+  const input: ScriptValue = {
+    type: "mul",
+    valueA: {
+      type: "number",
+      value: 5,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 15,
+  });
+});
+
+test("should perform constant folding for division", () => {
+  const input: ScriptValue = {
+    type: "div",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 7,
+  });
+});
+
+test("should round down to nearest int when constant folding for division", () => {
+  const input: ScriptValue = {
+    type: "div",
+    valueA: {
+      type: "number",
+      value: 14,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 4,
+  });
+});
+
+test("should perform constant folding for modulo", () => {
+  const input: ScriptValue = {
+    type: "mod",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 8,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 5,
+  });
+});
+
+test("should perform constant folding for greater than", () => {
+  const input: ScriptValue = {
+    type: "gt",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "gt",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 1,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 0,
+  });
+});
+
+test("should perform constant folding for greater than or equal to", () => {
+  const input: ScriptValue = {
+    type: "gte",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "gte",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  const input3: ScriptValue = {
+    type: "gte",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 1,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input3)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for less than", () => {
+  const input: ScriptValue = {
+    type: "lt",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "lt",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for less than or equal to", () => {
+  const input: ScriptValue = {
+    type: "lte",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "lte",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  const input3: ScriptValue = {
+    type: "lte",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 1,
+  });
+  expect(optimiseScriptValue(input3)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for equal to", () => {
+  const input: ScriptValue = {
+    type: "eq",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "eq",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 20,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 1,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 0,
+  });
+});
+
+test("should perform constant folding for not equal to", () => {
+  const input: ScriptValue = {
+    type: "ne",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "ne",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 20,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for min", () => {
+  const input: ScriptValue = {
+    type: "min",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "min",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 3,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 3,
+  });
+});
+
+test("should perform constant folding for max", () => {
+  const input: ScriptValue = {
+    type: "max",
+    valueA: {
+      type: "number",
+      value: 21,
+    },
+    valueB: {
+      type: "number",
+      value: 3,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "max",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 21,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 21,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 21,
+  });
+});
+
+test("should perform constant folding for 'and'", () => {
+  const input: ScriptValue = {
+    type: "and",
+    valueA: {
+      type: "number",
+      value: 1,
+    },
+    valueB: {
+      type: "number",
+      value: 0,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "and",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 1,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for 'or'", () => {
+  const input: ScriptValue = {
+    type: "or",
+    valueA: {
+      type: "number",
+      value: 1,
+    },
+    valueB: {
+      type: "number",
+      value: 0,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "or",
+    valueA: {
+      type: "number",
+      value: 0,
+    },
+    valueB: {
+      type: "number",
+      value: 0,
+    },
+  };
+  const input3: ScriptValue = {
+    type: "or",
+    valueA: {
+      type: "number",
+      value: 1,
+    },
+    valueB: {
+      type: "number",
+      value: 5,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 1,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input3)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for shift left", () => {
+  const input: ScriptValue = {
+    type: "shl",
+    valueA: {
+      type: "number",
+      value: 3,
+    },
+    valueB: {
+      type: "number",
+      value: 4,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 48,
+  });
+});
+
+test("should perform constant folding for shift right", () => {
+  const input: ScriptValue = {
+    type: "shr",
+    valueA: {
+      type: "number",
+      value: 48,
+    },
+    valueB: {
+      type: "number",
+      value: 4,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 3,
+  });
+});
+
+test("should perform constant folding for binary AND", () => {
+  const input: ScriptValue = {
+    type: "bAND",
+    valueA: {
+      type: "number",
+      value: 85,
+    },
+    valueB: {
+      type: "number",
+      value: 240,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 80,
+  });
+});
+
+test("should perform constant folding for binary OR", () => {
+  const input: ScriptValue = {
+    type: "bOR",
+    valueA: {
+      type: "number",
+      value: 85,
+    },
+    valueB: {
+      type: "number",
+      value: 240,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 245,
+  });
+});
+
+test("should perform constant folding for binary XOR", () => {
+  const input: ScriptValue = {
+    type: "bXOR",
+    valueA: {
+      type: "number",
+      value: 85,
+    },
+    valueB: {
+      type: "number",
+      value: 240,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 165,
+  });
+});
+
+test("should perform constant folding for atan2", () => {
+  const input: ScriptValue = {
+    type: "atan2",
+    valueA: {
+      type: "number",
+      value: 8,
+    },
+    valueB: {
+      type: "number",
+      value: 10,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 91,
+  });
+});
+
+test("should perform constant folding for 'not'", () => {
+  const input: ScriptValue = {
+    type: "not",
+    value: {
+      type: "number",
+      value: 8,
+    },
+  };
+  const input2: ScriptValue = {
+    type: "not",
+    value: {
+      type: "number",
+      value: 0,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "number",
+    value: 1,
+  });
+});
+
+test("should perform constant folding for 'abs'", () => {
+  const input: ScriptValue = {
+    type: "abs",
+    value: {
+      type: "number",
+      value: -7,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 7,
+  });
+});
+
+test("should perform constant folding for integer sqrt", () => {
+  const input: ScriptValue = {
+    type: "isqrt",
+    value: {
+      type: "number",
+      value: 29,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 5,
+  });
+});
+
+test("should perform constant folding for binary NOT", () => {
+  const input: ScriptValue = {
+    type: "bNOT",
+    value: {
+      type: "number",
+      value: 85,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: -86,
+  });
+});
+
+test("should perform constant folding for rnd function's input but perform calculation at runtime", () => {
+  const input: ScriptValue = {
+    type: "rnd",
+    value: {
+      type: "add",
+      valueA: {
+        type: "number",
+        value: 5,
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    },
+  };
+  const input2: ScriptValue = {
+    type: "rnd",
+    value: {
+      type: "number",
+      value: 85,
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "rnd",
+    value: {
+      type: "number",
+      value: 8,
+    },
+  });
+  expect(optimiseScriptValue(input2)).toEqual({
+    type: "rnd",
+    value: {
+      type: "number",
+      value: 85,
+    },
+  });
+});
+
+test("should convert expressions to script values when optimising", () => {
+  const input: ScriptValue = {
+    type: "expression",
+    value: "$00$ + 8",
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "0",
+    },
+    valueB: {
+      type: "number",
+      value: 8,
+    },
+  });
+});
+
+test("should perform constant folding for nested input", () => {
+  const input: ScriptValue = {
+    type: "mul",
+    valueA: {
+      type: "sub",
+      valueA: {
+        type: "number",
+        value: 5,
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    },
+    valueB: {
+      type: "add",
+      valueA: {
+        type: "number",
+        value: 5,
+      },
+      valueB: {
+        type: "min",
+        valueA: {
+          type: "number",
+          value: 3,
+        },
+        valueB: {
+          type: "number",
+          value: 6,
+        },
+      },
+    },
+  };
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 16,
+  });
+});
+
+test("should replace missing values with 0", () => {
+  const input: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "5",
+    },
+  } as ScriptValue;
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "5",
+    },
+    valueB: {
+      type: "number",
+      value: 0,
+    },
+  });
+});
+
+test("should replace missing values with 0 and collapse where possible", () => {
+  const input: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "number",
+      value: 5,
+    },
+  } as ScriptValue;
+  expect(optimiseScriptValue(input)).toEqual({
+    type: "number",
+    value: 5,
+  });
+});
+
+test("should precompile to list of required operations", () => {
+  const input: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "variable",
+      value: "L0",
+    },
+  };
+  expect(precompileScriptValue(input)).toEqual([
+    [
+      {
+        type: "variable",
+        value: "L0",
+      },
+      {
+        type: "variable",
+        value: "L0",
+      },
+      {
+        type: "add",
+      },
+    ],
+    [],
+  ]);
+});
+
+test("should precompile array length as a compile-time lookup", () => {
+  const input: ScriptValue = {
+    type: "len",
+    value: {
+      type: "variable",
+      value: "array",
+    },
+  };
+  expect(precompileScriptValue(input)).toEqual([
+    [{ type: "len", value: "array" }],
+    [],
+  ]);
+});
+
+test("should reject an indexed array element as an array length value", () => {
+  expect(
+    isScriptValue({
+      type: "len",
+      value: {
+        type: "variable",
+        value: "array",
+        index: { type: "number", value: 0 },
+      },
+    }),
+  ).toBe(false);
+});
+
+test("should reject an explicit undefined array index", () => {
+  expect(
+    isScriptValue({
+      type: "len",
+      value: {
+        type: "variable",
+        value: "array",
+        index: undefined,
+      },
+    }),
+  ).toBe(false);
+});
+
+test("should precompile to list of required operations", () => {
+  const input: ScriptValue = {
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "property",
+      target: "player",
+      property: "xpos",
+    },
+  };
+  expect(precompileScriptValue(input)).toEqual([
+    [
+      {
+        type: "variable",
+        value: "L0",
+      },
+      {
+        type: "local",
+        value: "local_0",
+        offset: 1,
+      },
+      {
+        type: "number",
+        value: 8,
+      },
+      {
+        type: "shr",
+      },
+      {
+        type: "add",
+      },
+    ],
+    [
+      {
+        local: "local_0",
+        value: {
+          type: "actorPosition",
+          target: "player",
+        },
+      },
+    ],
+  ]);
+});
+
+test("resolves constants when expression can collapse to a number", () => {
+  const [ops] = precompileScriptValue(
+    {
+      type: "add",
+      valueA: { type: "constant", value: "constant1" },
+      valueB: { type: "number", value: 2 },
+    },
+    "",
+    {
+      resolveConstants: (id) => {
+        expect(id).toBe("constant1");
+        return 3;
+      },
+    },
+  );
+
+  expect(ops).toEqual([{ type: "number", value: 5 }]);
+});
+
+test("resolves constants when expression is just a single constant", () => {
+  const [ops] = precompileScriptValue(
+    { type: "constant", value: "constant1" },
+    "",
+    {
+      resolveConstants: (id) => {
+        expect(id).toBe("constant1");
+        return 3;
+      },
+    },
+  );
+
+  expect(ops).toEqual([{ type: "number", value: 3 }]);
+});
+
+test("preserves constant symbols when expression cannot collapse to a number", () => {
+  const [ops] = precompileScriptValue(
+    {
+      type: "add",
+      valueA: { type: "variable", value: "variable1" },
+      valueB: { type: "constant", value: "constant1" },
+    },
+    "",
+    {
+      resolveConstants: () => 3,
+    },
+  );
+
+  expect(ops).toEqual([
+    {
+      type: "variable",
+      value: "variable1",
+    },
+    {
+      type: "constant",
+      value: "constant1",
+    },
+    {
+      type: "add",
+    },
+  ]);
+});
+
+test("should convert expression ($00$ + 8) to script value", () => {
+  const input = "$00$ + 8";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "0",
+    },
+    valueB: {
+      type: "number",
+      value: 8,
+    },
+  });
+});
+
+test("should convert statically indexed variables in expressions", () => {
+  expect(
+    expressionToScriptValue("$11111111-1111-1111-1111-111111111111$[3]"),
+  ).toEqual({
+    type: "variable",
+    value: "11111111-1111-1111-1111-111111111111",
+    index: {
+      type: "number",
+      value: 3,
+    },
+  });
+});
+
+test("should preserve UUID variable IDs beginning with zero", () => {
+  expect(
+    expressionToScriptValue(
+      "$01111111-1111-1111-1111-111111111111$[$02222222-2222-2222-2222-222222222222$]",
+    ),
+  ).toEqual({
+    type: "variable",
+    value: "01111111-1111-1111-1111-111111111111",
+    index: {
+      type: "variable",
+      value: "02222222-2222-2222-2222-222222222222",
+    },
+  });
+});
+
+test("should convert variable indexed variables in expressions", () => {
+  expect(
+    expressionToScriptValue(
+      "$11111111-1111-1111-1111-111111111111$[$22222222-2222-2222-2222-222222222222$]",
+    ),
+  ).toEqual({
+    type: "variable",
+    value: "11111111-1111-1111-1111-111111111111",
+    index: {
+      type: "variable",
+      value: "22222222-2222-2222-2222-222222222222",
+    },
+  });
+});
+
+test("should convert constant indexed variables in expressions", () => {
+  expect(
+    expressionToScriptValue(
+      "$11111111-1111-1111-1111-111111111111$[@33333333-3333-3333-3333-333333333333@]",
+    ),
+  ).toEqual({
+    type: "variable",
+    value: "11111111-1111-1111-1111-111111111111",
+    index: {
+      type: "constant",
+      value: "33333333-3333-3333-3333-333333333333",
+    },
+  });
+});
+
+test("should convert array index expressions", () => {
+  expect(
+    expressionToScriptValue(
+      "$11111111-1111-1111-1111-111111111111$[$22222222-2222-2222-2222-222222222222$ + 1]",
+    ),
+  ).toEqual({
+    type: "variable",
+    value: "11111111-1111-1111-1111-111111111111",
+    index: {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "22222222-2222-2222-2222-222222222222",
+      },
+      valueB: { type: "number", value: 1 },
+    },
+  });
+});
+
+test("should convert nested indexed variables in array index expressions", () => {
+  expect(
+    expressionToScriptValue(
+      "$11111111-1111-1111-1111-111111111111$[$22222222-2222-2222-2222-222222222222$[$33333333-3333-3333-3333-333333333333$] + $44444444-4444-4444-4444-444444444444$]",
+    ),
+  ).toEqual({
+    type: "variable",
+    value: "11111111-1111-1111-1111-111111111111",
+    index: {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "22222222-2222-2222-2222-222222222222",
+        index: {
+          type: "variable",
+          value: "33333333-3333-3333-3333-333333333333",
+        },
+      },
+      valueB: {
+        type: "variable",
+        value: "44444444-4444-4444-4444-444444444444",
+      },
+    },
+  });
+});
+
+test("should find constants used as variable indices", () => {
+  expect(
+    constantInScriptValue("33333333-3333-3333-3333-333333333333", {
+      type: "variable",
+      value: "11111111-1111-1111-1111-111111111111",
+      index: {
+        type: "constant",
+        value: "33333333-3333-3333-3333-333333333333",
+      },
+    }),
+  ).toBe(true);
+});
+
+test("should convert expression ($L0$ + 8) to script value", () => {
+  const input = "$L0$ + 8";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "number",
+      value: 8,
+    },
+  });
+});
+
+test("should convert expression ($V0$ + 8) to script value", () => {
+  const input = "$V0$ + 8";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "V0",
+    },
+    valueB: {
+      type: "number",
+      value: 8,
+    },
+  });
+});
+
+test("should convert expression (!($V0$)) to script value", () => {
+  const input = "!($V0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "not",
+    value: {
+      type: "variable",
+      value: "V0",
+    },
+  });
+});
+
+test("should convert expression (!!($V0$)) to script value", () => {
+  const input = "!!($V0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "not",
+    value: {
+      type: "not",
+      value: {
+        type: "variable",
+        value: "V0",
+      },
+    },
+  });
+});
+
+test("should convert expression (!(!($V0$))) to script value", () => {
+  const input = "!(!($V0$))";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "not",
+    value: {
+      type: "not",
+      value: {
+        type: "variable",
+        value: "V0",
+      },
+    },
+  });
+});
+
+test("should convert expression (~($V0$)) to script value", () => {
+  const input = "~($V0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "bNOT",
+    value: {
+      type: "variable",
+      value: "V0",
+    },
+  });
+});
+
+test("should convert expression (~~($V0$)) to script value", () => {
+  const input = "~~($V0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "bNOT",
+    value: {
+      type: "bNOT",
+      value: {
+        type: "variable",
+        value: "V0",
+      },
+    },
+  });
+});
+
+test("should convert expression (min($L0$, 10)) to script value", () => {
+  const input = "min($L0$, 10)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "min",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "number",
+      value: 10,
+    },
+  });
+});
+
+test("should convert expression (max($L0$, 10)) to script value", () => {
+  const input = "max($L0$, 10)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "max",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "number",
+      value: 10,
+    },
+  });
+});
+
+test("should convert expression (abs($L0$)) to script value", () => {
+  const input = "abs($L0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "abs",
+    value: {
+      type: "variable",
+      value: "L0",
+    },
+  });
+});
+
+test("should convert expression (len($L0$)) to script value", () => {
+  const input = "len($L0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "len",
+    value: {
+      type: "variable",
+      value: "L0",
+    },
+  });
+});
+
+test("should convert expression (rnd($L0$)) to script value", () => {
+  const input = "rnd($L0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "rnd",
+    value: {
+      type: "variable",
+      value: "L0",
+    },
+  });
+});
+
+test("should convert expression (isqrt($L0$)) to script value", () => {
+  const input = "isqrt($L0$)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "isqrt",
+    value: {
+      type: "variable",
+      value: "L0",
+    },
+  });
+});
+
+test("should convert expression (atan2($L0$, 10)) to script value", () => {
+  const input = "atan2($L0$, 10)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "atan2",
+    valueA: {
+      type: "variable",
+      value: "L0",
+    },
+    valueB: {
+      type: "number",
+      value: 10,
+    },
+  });
+});
+
+test("should return zero when converting (* 8) to script value", () => {
+  const input = "* 8";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+});
+
+test("should return zero when converting min(5,) to script value", () => {
+  const input = "min(5,)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+});
+
+test("should convert expression (-5) to script value", () => {
+  const input = "-5";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "neg",
+    value: {
+      type: "number",
+      value: 5,
+    },
+  });
+});
+
+test("should convert expression (10-5) to script value", () => {
+  const input = "10-5";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "sub",
+    valueA: {
+      type: "number",
+      value: 10,
+    },
+    valueB: {
+      type: "number",
+      value: 5,
+    },
+  });
+});
+
+test("should convert expression (10+(-5)) to script value", () => {
+  const input = "10+(-5)";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "add",
+    valueA: {
+      type: "number",
+      value: 10,
+    },
+    valueB: {
+      type: "neg",
+      value: {
+        type: "number",
+        value: 5,
+      },
+    },
+  });
+});
+
+test("should convert expression (true || false) to script value", () => {
+  const input = "true || false";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "or",
+    valueA: {
+      type: "number",
+      value: 1,
+    },
+    valueB: {
+      type: "number",
+      value: 0,
+    },
+  });
+});
+
+test("should convert invalid expression to zero script value", () => {
+  const input = "($00$ + 8";
+  expect(expressionToScriptValue(input)).toEqual({
+    type: "number",
+    value: 0,
+  });
+});
+
+test("should add two script values", () => {
+  const inputA: ScriptValue = {
+    type: "variable",
+    value: "0",
+  };
+  const inputB: ScriptValue = {
+    type: "number",
+    value: 5,
+  };
+  expect(addScriptValueToScriptValue(inputA, inputB)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "0",
+    },
+    valueB: {
+      type: "number",
+      value: 5,
+    },
+  });
+});
+
+test("should add a const number to a script value", () => {
+  const inputA: ScriptValue = {
+    type: "variable",
+    value: "0",
+  };
+  expect(addScriptValueConst(inputA, 12)).toEqual({
+    type: "add",
+    valueA: {
+      type: "variable",
+      value: "0",
+    },
+    valueB: {
+      type: "number",
+      value: 12,
+    },
+  });
+});
+
+test("should multiply a const number with a script value", () => {
+  const inputA: ScriptValue = {
+    type: "variable",
+    value: "0",
+  };
+  expect(multiplyScriptValueConst(inputA, 8)).toEqual({
+    type: "mul",
+    valueA: {
+      type: "variable",
+      value: "0",
+    },
+    valueB: {
+      type: "number",
+      value: 8,
+    },
+  });
+});
+
+test("should sort fetch operations so that properties on same target/prop are grouped together", () => {
+  const input: PrecompiledValueFetch[] = [
+    {
+      local: "tmp1",
+      value: {
+        type: "actorPosition",
+        target: "actor1",
+      },
+    },
+    {
+      local: "tmp2",
+      value: {
+        type: "actorPosition",
+        target: "actor2",
+      },
+    },
+    {
+      local: "tmp3",
+      value: {
+        type: "actorPosition",
+        target: "actor1",
+      },
+    },
+    {
+      local: "tmp4",
+      value: {
+        type: "actorPosition",
+        target: "actor1",
+      },
+    },
+  ];
+  expect(sortFetchOperations(input)).toEqual([
+    {
+      local: "tmp1",
+      value: {
+        type: "actorPosition",
+        target: "actor1",
+      },
+    },
+    {
+      local: "tmp3",
+      value: {
+        type: "actorPosition",
+        target: "actor1",
+      },
+    },
+    {
+      local: "tmp4",
+      value: {
+        type: "actorPosition",
+        target: "actor1",
+      },
+    },
+    {
+      local: "tmp2",
+      value: {
+        type: "actorPosition",
+        target: "actor2",
+      },
+    },
+  ]);
+});
+
+describe("mapScriptValue", () => {
+  test("maps the array reference used by an array length value", () => {
+    const input: ScriptValue = {
+      type: "len",
+      value: {
+        type: "variable",
+        value: "array",
+      },
+    };
+
+    const result = mapScriptValue(input, (value): ScriptValueAtom =>
+      value.type === "variable" ? { ...value, value: "mappedArray" } : value,
+    );
+
+    expect(result).toEqual({
+      type: "len",
+      value: {
+        type: "variable",
+        value: "mappedArray",
+      },
+    });
+  });
+
+  test("maps variable references used as array indices", () => {
+    const input: ScriptValue = {
+      type: "variable",
+      value: "array",
+      index: {
+        type: "variable",
+        value: "index",
+      },
+    };
+
+    const result = mapScriptValue(input, (value): ScriptValueAtom =>
+      value.type === "variable" && value.value === "index"
+        ? { ...value, value: "mappedIndex" }
+        : value,
+    );
+
+    expect(result).toEqual({
+      type: "variable",
+      value: "array",
+      index: {
+        type: "variable",
+        value: "mappedIndex",
+      },
+    });
+  });
+
+  test("maps actor properties used inside array index expressions", () => {
+    const input: ScriptValue = {
+      type: "variable",
+      value: "array",
+      index: {
+        type: "add",
+        valueA: {
+          type: "property",
+          target: "sourceActor",
+          property: "xpos",
+        },
+        valueB: {
+          type: "number",
+          value: 1,
+        },
+      },
+    };
+
+    const result = mapScriptValue(input, (value): ScriptValueAtom =>
+      value.type === "property" && value.target === "sourceActor"
+        ? { ...value, target: "mappedActor" }
+        : value,
+    );
+
+    expect(result).toEqual({
+      type: "variable",
+      value: "array",
+      index: {
+        type: "add",
+        valueA: {
+          type: "property",
+          target: "mappedActor",
+          property: "xpos",
+        },
+        valueB: {
+          type: "number",
+          value: 1,
+        },
+      },
+    });
+  });
+});
+
+describe("walkScriptValue", () => {
+  const logValues = (input: ScriptValue): string[] => {
+    const values: string[] = [];
+    walkScriptValue(input, (val) => values.push(val.type));
+    return values;
+  };
+
+  test("should walk through a simple add operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "number",
+        value: 5,
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+    expect(logValues(input)).toEqual(["add", "number", "number"]);
+  });
+
+  test("should walk through an array length value", () => {
+    const input: ScriptValue = {
+      type: "len",
+      value: {
+        type: "variable",
+        value: "array",
+      },
+    };
+
+    expect(logValues(input)).toEqual(["len", "variable"]);
+  });
+
+  test("should walk through nested operations", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "sub",
+        valueA: {
+          type: "number",
+          value: 5,
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "add",
+        valueA: {
+          type: "number",
+          value: 5,
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+    };
+    expect(logValues(input)).toEqual([
+      "mul",
+      "sub",
+      "number",
+      "number",
+      "add",
+      "number",
+      "number",
+    ]);
+  });
+
+  test("should walk through unary operation", () => {
+    const input: ScriptValue = {
+      type: "not",
+      value: {
+        type: "number",
+        value: 1,
+      },
+    };
+    expect(logValues(input)).toEqual(["not", "number"]);
+  });
+
+  test("should walk through unary operation with nested binary operation", () => {
+    const input: ScriptValue = {
+      type: "not",
+      value: {
+        type: "add",
+        valueA: {
+          type: "number",
+          value: 1,
+        },
+        valueB: {
+          type: "number",
+          value: 2,
+        },
+      },
+    };
+    expect(logValues(input)).toEqual(["not", "add", "number", "number"]);
+  });
+
+  test("should handle complex nested structure", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "sub",
+        valueA: {
+          type: "add",
+          valueA: {
+            type: "number",
+            value: 2,
+          },
+          valueB: {
+            type: "number",
+            value: 3,
+          },
+        },
+        valueB: {
+          type: "number",
+          value: 1,
+        },
+      },
+      valueB: {
+        type: "div",
+        valueA: {
+          type: "number",
+          value: 10,
+        },
+        valueB: {
+          type: "number",
+          value: 2,
+        },
+      },
+    };
+    expect(logValues(input)).toEqual([
+      "mul",
+      "sub",
+      "add",
+      "number",
+      "number",
+      "number",
+      "div",
+      "number",
+      "number",
+    ]);
+  });
+});
+
+describe("extractScriptValueVariables", () => {
+  test("should treat textual expression references as ordinary variables", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "len($V0$) + $V1$",
+    };
+
+    expect(extractScriptValueVariableUses(input)).toEqual([
+      { id: "V0", type: "number" },
+      { id: "V1", type: "number" },
+    ]);
+  });
+
+  test("should resolve indexed roots separately from index dependencies", () => {
+    const input: ScriptValue = {
+      type: "variable",
+      value: "V0",
+      index: {
+        type: "variable",
+        value: "V1",
+      },
+    };
+
+    expect(extractScriptValueVariableUses(input)).toEqual([
+      { id: "V0", type: "array" },
+      { id: "V1", type: "number" },
+    ]);
+  });
+
+  test("should extract single variable from a simple add operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "V0",
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual(["V0"]);
+  });
+
+  test("should extract multiple variables from nested operations", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "sub",
+        valueA: {
+          type: "variable",
+          value: "V1",
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "add",
+        valueA: {
+          type: "variable",
+          value: "V2",
+        },
+        valueB: {
+          type: "variable",
+          value: "V3",
+        },
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual(["V1", "V2", "V3"]);
+  });
+
+  test("should handle unary operation with variable", () => {
+    const input: ScriptValue = {
+      type: "not",
+      value: {
+        type: "variable",
+        value: "V4",
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual(["V4"]);
+  });
+
+  test("should handle operation with no variables", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "number",
+        value: 5,
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual([]);
+  });
+
+  test("should extract variables from complex nested structure", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "sub",
+        valueA: {
+          type: "add",
+          valueA: {
+            type: "variable",
+            value: "V5",
+          },
+          valueB: {
+            type: "variable",
+            value: "V6",
+          },
+        },
+        valueB: {
+          type: "variable",
+          value: "V7",
+        },
+      },
+      valueB: {
+        type: "div",
+        valueA: {
+          type: "variable",
+          value: "V8",
+        },
+        valueB: {
+          type: "variable",
+          value: "V9",
+        },
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual([
+      "V5",
+      "V6",
+      "V7",
+      "V8",
+      "V9",
+    ]);
+  });
+
+  test("should extract variables from expression", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "42 * ($10$ * $V4$) + $T0$",
+    };
+    expect(extractScriptValueVariables(input)).toEqual(["10", "V4", "T0"]);
+  });
+
+  test("should extract variables from nested expressions", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "expression",
+        value: "$V1$ * ($V2$ + $V3$)",
+      },
+      valueB: {
+        type: "expression",
+        value: "($V4$ - $V5$) / $V6$",
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual([
+      "V1",
+      "V2",
+      "V3",
+      "V4",
+      "V5",
+      "V6",
+    ]);
+  });
+
+  test("should handle expression with no variables", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "42 * (3 + 5)",
+    };
+    expect(extractScriptValueVariables(input)).toEqual([]);
+  });
+
+  test("should handle complex expression with variables", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "42 * ($10$ * $V4$) + $T0$ + min($L1$, 10)",
+    };
+    expect(extractScriptValueVariables(input)).toEqual([
+      "10",
+      "V4",
+      "T0",
+      "L1",
+    ]);
+  });
+
+  test("should handle nested expression within operation", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "expression",
+        value: "$V1$ * 3",
+      },
+      valueB: {
+        type: "sub",
+        valueA: {
+          type: "expression",
+          value: "$V2$ + 5",
+        },
+        valueB: {
+          type: "variable",
+          value: "V3",
+        },
+      },
+    };
+    expect(extractScriptValueVariables(input)).toEqual(["V1", "V2", "V3"]);
+  });
+});
+
+describe("someInScriptValue", () => {
+  test("should return true for a simple add operation with a matching node", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "V0",
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+    const result = someInScriptValue(
+      input,
+      (node) => node.type === "number" && node.value === 3,
+    );
+    expect(result).toBe(true);
+  });
+
+  test("should return false for a simple add operation with no matching node", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "V0",
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+    const result = someInScriptValue(
+      input,
+      (node) => node.type === "number" && node.value === 4,
+    );
+    expect(result).toBe(false);
+  });
+
+  test("should return true for a nested operation with a matching node", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "add",
+        valueA: {
+          type: "number",
+          value: 2,
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 5,
+      },
+    };
+    const result = someInScriptValue(
+      input,
+      (node) => node.type === "number" && node.value === 5,
+    );
+    expect(result).toBe(true);
+  });
+
+  test("should return false for a nested operation with no matching node", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "add",
+        valueA: {
+          type: "number",
+          value: 2,
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 5,
+      },
+    };
+    const result = someInScriptValue(
+      input,
+      (node) => node.type === "number" && node.value === 10,
+    );
+    expect(result).toBe(false);
+  });
+
+  test("should return true for a unary operation with a matching node", () => {
+    const input: ScriptValue = {
+      type: "not",
+      value: {
+        type: "true",
+      },
+    };
+    const result = someInScriptValue(input, (node) => node.type === "true");
+    expect(result).toBe(true);
+  });
+
+  test("should return false for a unary operation with no matching node", () => {
+    const input: ScriptValue = {
+      type: "not",
+      value: {
+        type: "true",
+      },
+    };
+    const result = someInScriptValue(input, (node) => node.type === "false");
+    expect(result).toBe(false);
+  });
+
+  test("should return true when root node itself matches", () => {
+    const input: ScriptValue = {
+      type: "true",
+    };
+    const result = someInScriptValue(input, (node) => node.type === "true");
+    expect(result).toBe(true);
+  });
+
+  test("should handle complex nested operations", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "mul",
+        valueA: {
+          type: "variable",
+          value: "V0",
+        },
+        valueB: {
+          type: "div",
+          valueA: {
+            type: "number",
+            value: 6,
+          },
+          valueB: {
+            type: "number",
+            value: 2,
+          },
+        },
+      },
+      valueB: {
+        type: "sub",
+        valueA: {
+          type: "number",
+          value: 10,
+        },
+        valueB: {
+          type: "number",
+          value: 4,
+        },
+      },
+    };
+    const result = someInScriptValue(
+      input,
+      (node) => node.type === "variable" && node.value === "V0",
+    );
+    expect(result).toBe(true);
+  });
+
+  test("should exit early on first matching node in simple add operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "number",
+        value: 3,
+      },
+      valueB: {
+        type: "number",
+        value: 4,
+      },
+    };
+
+    const mockFn = jest.fn(
+      (node) => node.type === "number" && node.value === 3,
+    );
+
+    const result = someInScriptValue(input, mockFn);
+
+    expect(result).toBe(true);
+    expect(mockFn).toHaveBeenCalledTimes(2);
+  });
+
+  test("should exit early on first matching node in nested operation", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "add",
+        valueA: {
+          type: "number",
+          value: 2,
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 5,
+      },
+    };
+
+    const mockFn = jest.fn(
+      (node) => node.type === "number" && node.value === 3,
+    );
+
+    const result = someInScriptValue(input, mockFn);
+
+    expect(result).toBe(true);
+    expect(mockFn).toHaveBeenCalledTimes(4);
+  });
+
+  test("should exit early on first matching node in complex nested operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "mul",
+        valueA: {
+          type: "variable",
+          value: "V0",
+        },
+        valueB: {
+          type: "div",
+          valueA: {
+            type: "number",
+            value: 6,
+          },
+          valueB: {
+            type: "number",
+            value: 2,
+          },
+        },
+      },
+      valueB: {
+        type: "sub",
+        valueA: {
+          type: "number",
+          value: 10,
+        },
+        valueB: {
+          type: "number",
+          value: 4,
+        },
+      },
+    };
+
+    const mockFn = jest.fn(
+      (node) => node.type === "number" && node.value === 6,
+    );
+
+    const result = someInScriptValue(input, mockFn);
+
+    expect(result).toBe(true);
+    expect(mockFn).toHaveBeenCalledTimes(5);
+  });
+
+  test("should exit early on first matching node even if it's a unary operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "not",
+        value: {
+          type: "true",
+        },
+      },
+      valueB: {
+        type: "false",
+      },
+    };
+
+    const mockFn = jest.fn((node) => node.type === "true");
+
+    const result = someInScriptValue(input, mockFn);
+
+    expect(result).toBe(true);
+    expect(mockFn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("variableInScriptValue", () => {
+  test("should return true when variable is found in a simple add operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "V0",
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(true);
+  });
+
+  test("should return false when variable is not found in a simple add operation", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "V1",
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(false);
+  });
+
+  test("should return true when variable is found in a nested operation", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "add",
+        valueA: {
+          type: "variable",
+          value: "V0",
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 5,
+      },
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(true);
+  });
+
+  test("should return false when variable is not found in a nested operation", () => {
+    const input: ScriptValue = {
+      type: "mul",
+      valueA: {
+        type: "add",
+        valueA: {
+          type: "variable",
+          value: "V1",
+        },
+        valueB: {
+          type: "number",
+          value: 3,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 5,
+      },
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(false);
+  });
+
+  test("should return true when variable is found in an expression", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "5 + $V0$",
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(true);
+  });
+
+  test("should return false when variable is not found in an expression", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "10 * $V1$",
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(false);
+  });
+
+  test("should handle complex nested operations", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "mul",
+        valueA: {
+          type: "variable",
+          value: "V0",
+        },
+        valueB: {
+          type: "div",
+          valueA: {
+            type: "number",
+            value: 6,
+          },
+          valueB: {
+            type: "number",
+            value: 2,
+          },
+        },
+      },
+      valueB: {
+        type: "sub",
+        valueA: {
+          type: "number",
+          value: 10,
+        },
+        valueB: {
+          type: "number",
+          value: 4,
+        },
+      },
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(true);
+  });
+
+  test("should return false if variable not present in complex nested operations", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "mul",
+        valueA: {
+          type: "variable",
+          value: "V1",
+        },
+        valueB: {
+          type: "div",
+          valueA: {
+            type: "number",
+            value: 6,
+          },
+          valueB: {
+            type: "number",
+            value: 2,
+          },
+        },
+      },
+      valueB: {
+        type: "sub",
+        valueA: {
+          type: "number",
+          value: 10,
+        },
+        valueB: {
+          type: "number",
+          value: 4,
+        },
+      },
+    };
+
+    const result = variableInScriptValue("V0", input);
+    expect(result).toBe(false);
+  });
+});
+
+describe("engine constants in expressions", () => {
+  test("should parse engine constants in expressionToScriptValue", () => {
+    const input = "@engine::MAX_HEALTH@ + 10";
+    const result = expressionToScriptValue(input);
+    expect(result).toMatchObject({
+      type: "add",
+      valueA: {
+        type: "constant",
+        value: "engine::MAX_HEALTH",
+      },
+      valueB: {
+        type: "number",
+        value: 10,
+      },
+    });
+  });
+
+  test("should parse engine constants with underscores", () => {
+    const input = "@engine::PLAYER_MAX_SPEED@";
+    const result = expressionToScriptValue(input);
+    expect(result).toMatchObject({
+      type: "constant",
+      value: "engine::PLAYER_MAX_SPEED",
+    });
+  });
+
+  test("should parse engine constants with numbers", () => {
+    const input = "@engine::LEVEL_1_MAX@ + @engine::LEVEL_2_MAX@";
+    const result = expressionToScriptValue(input);
+    expect(result).toMatchObject({
+      type: "add",
+      valueA: {
+        type: "constant",
+        value: "engine::LEVEL_1_MAX",
+      },
+      valueB: {
+        type: "constant",
+        value: "engine::LEVEL_2_MAX",
+      },
+    });
+  });
+
+  test("should handle engine constants mixed with user constants", () => {
+    const input =
+      "@550e8400-e29b-41d4-a716-446655440000@ * @engine::MULTIPLIER@";
+    const result = expressionToScriptValue(input);
+    expect(result).toMatchObject({
+      type: "mul",
+      valueA: {
+        type: "constant",
+        value: "550e8400-e29b-41d4-a716-446655440000",
+      },
+      valueB: {
+        type: "constant",
+        value: "engine::MULTIPLIER",
+      },
+    });
+  });
+
+  test("should handle engine constants in nested operations", () => {
+    const input = "(@engine::MAX_HP@ - $10$) * @engine::MULTIPLIER@";
+    const result = expressionToScriptValue(input);
+    expect(result).toMatchObject({
+      type: "mul",
+      valueA: {
+        type: "sub",
+      },
+      valueB: {
+        type: "constant",
+        value: "engine::MULTIPLIER",
+      },
+    });
+  });
+});
+
+describe("expressions", () => {
+  test("should optimise expression script values", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "5 + 0",
+    };
+    expect(optimiseScriptValue(input)).toEqual({
+      type: "number",
+      value: 5,
+    });
+  });
+
+  test("should optimise multiply by negative numbers", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "0 * -1",
+    };
+    expect(optimiseScriptValue(input)).toEqual({
+      type: "number",
+      value: -0,
+    });
+  });
+
+  test("should optimise multiply variable by negative numbers", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "$00$ * -1",
+    };
+    expect(optimiseScriptValue(input)).toEqual({
+      type: "mul",
+      valueA: {
+        type: "variable",
+        value: "0",
+      },
+      valueB: {
+        type: "number",
+        value: -1,
+      },
+    });
+  });
+
+  test("should optimise multiply variable by negative variable", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "$00$ * -$01$",
+    };
+    expect(optimiseScriptValue(input)).toEqual({
+      type: "mul",
+      valueA: {
+        type: "variable",
+        value: "0",
+      },
+      valueB: {
+        type: "neg",
+        value: {
+          type: "variable",
+          value: "1",
+        },
+      },
+    });
+  });
+});
+
+describe("precompileScriptValue ASM expressions", () => {
+  test("should continue folding numeric-only expressions to a number", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "number",
+        value: 2,
+      },
+      valueB: {
+        type: "number",
+        value: 3,
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "number",
+          value: 5,
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should not wrap a standalone constant in an ASM expression", () => {
+    const input: ScriptValue = {
+      type: "constant",
+      value: "engine::MY_CONST",
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "constant",
+          value: "engine::MY_CONST",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should not wrap a standalone number symbol in an ASM expression", () => {
+    const input: ScriptValue = {
+      type: "numberSymbol",
+      value: "MY_SYMBOL",
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "numberSymbol",
+          value: "MY_SYMBOL",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should precompile a static symbolic expression as one ASM expression", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+      valueB: {
+        type: "number",
+        value: 1,
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "asmExpression",
+          value: input,
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should precompile number symbol expressions as one ASM expression", () => {
+    const input: ScriptValue = {
+      type: "bAND",
+      valueA: {
+        type: "numberSymbol",
+        value: "PLATFORM_CONST",
+      },
+      valueB: {
+        type: "number",
+        value: 31,
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "asmExpression",
+          value: input,
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should precompile nested static expressions as one ASM expression", () => {
+    const input: ScriptValue = {
+      type: "shl",
+      valueA: {
+        type: "shr",
+        valueA: {
+          type: "constant",
+          value: "engine::MY_CONST",
+        },
+        valueB: {
+          type: "number",
+          value: 2,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 2,
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "asmExpression",
+          value: input,
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should precompile a static subtree within a runtime expression", () => {
+    const staticValue: ScriptValue = {
+      type: "bAND",
+      valueA: {
+        type: "add",
+        valueA: {
+          type: "constant",
+          value: "engine::MY_CONST",
+        },
+        valueB: {
+          type: "number",
+          value: 1,
+        },
+      },
+      valueB: {
+        type: "number",
+        value: 31,
+      },
+    };
+
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "variable",
+        value: "L0",
+      },
+      valueB: staticValue,
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "variable",
+          value: "L0",
+        },
+        {
+          type: "asmExpression",
+          value: staticValue,
+        },
+        {
+          type: "add",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should keep unsupported static operators as RPN operations", () => {
+    const input: ScriptValue = {
+      type: "min",
+      valueA: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+      valueB: {
+        type: "number",
+        value: 10,
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "constant",
+          value: "engine::MY_CONST",
+        },
+        {
+          type: "number",
+          value: 10,
+        },
+        {
+          type: "min",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should still precompile supported static subtrees below an unsupported operator", () => {
+    const staticValue: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+      valueB: {
+        type: "number",
+        value: 1,
+      },
+    };
+
+    const input: ScriptValue = {
+      type: "min",
+      valueA: staticValue,
+      valueB: {
+        type: "number",
+        value: 10,
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "asmExpression",
+          value: staticValue,
+        },
+        {
+          type: "number",
+          value: 10,
+        },
+        {
+          type: "min",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should keep supported operators using runtime operands as RPN operations", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+      valueB: {
+        type: "variable",
+        value: "L0",
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "constant",
+          value: "engine::MY_CONST",
+        },
+        {
+          type: "variable",
+          value: "L0",
+        },
+        {
+          type: "add",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should precompile supported unary static expressions", () => {
+    const input: ScriptValue = {
+      type: "bNOT",
+      value: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "asmExpression",
+          value: input,
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should keep unsupported unary static expressions as RPN operations", () => {
+    const input: ScriptValue = {
+      type: "abs",
+      value: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "constant",
+          value: "engine::MY_CONST",
+        },
+        {
+          type: "abs",
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should precompile static expression strings as ASM expressions", () => {
+    const input: ScriptValue = {
+      type: "expression",
+      value: "@engine::MY_CONST@ + 1",
+    };
+
+    expect(precompileScriptValue(input)).toEqual([
+      [
+        {
+          type: "asmExpression",
+          value: {
+            type: "add",
+            valueA: {
+              type: "constant",
+              value: "engine::MY_CONST",
+            },
+            valueB: {
+              type: "number",
+              value: 1,
+            },
+          },
+        },
+      ],
+      [],
+    ]);
+  });
+
+  test("should not precompile expressions containing fetched values as ASM expressions", () => {
+    const input: ScriptValue = {
+      type: "add",
+      valueA: {
+        type: "property",
+        target: "player",
+        property: "xpos",
+      },
+      valueB: {
+        type: "constant",
+        value: "engine::MY_CONST",
+      },
+    };
+
+    const [rpnOps, fetchOps] = precompileScriptValue(input);
+
+    expect(fetchOps).toHaveLength(1);
+    expect(rpnOps).not.toContainEqual(
+      expect.objectContaining({ type: "asmExpression" }),
+    );
+  });
+
+  test("preserves constant symbols in static ASM expressions that cannot collapse to a number", () => {
+    const [ops] = precompileScriptValue(
+      {
+        type: "add",
+        valueA: { type: "numberSymbol", value: "SOME_SYMBOL" },
+        valueB: { type: "constant", value: "constant1" },
+      },
+      "",
+      {
+        resolveConstants: () => 3,
+      },
+    );
+
+    expect(ops).toEqual([
+      {
+        type: "asmExpression",
+        value: {
+          type: "add",
+          valueA: { type: "numberSymbol", value: "SOME_SYMBOL" },
+          valueB: { type: "constant", value: "constant1" },
+        },
+      },
+    ]);
+  });
+});
+
+describe("peepholeRPN", () => {
+  test("should combine matching SHR N, ADD constant, SHL N", () => {
+    expect(
+      peepholeRPN([
+        { type: "variable", value: "L0" },
+        { type: "number", value: 3 },
+        { type: "shr" },
+        { type: "number", value: 2 },
+        { type: "add" },
+        { type: "number", value: 3 },
+        { type: "shl" },
+      ]),
+    ).toEqual([
+      { type: "variable", value: "L0" },
+      { type: "number", value: 16 },
+      { type: "add" },
+      { type: "number", value: 0xfff8 },
+      { type: "bAND" },
+    ]);
+  });
+
+  test("should combine matching SHR N, SUB constant, SHL N", () => {
+    expect(
+      peepholeRPN([
+        { type: "variable", value: "L0" },
+        { type: "number", value: 3 },
+        { type: "shr" },
+        { type: "number", value: 2 },
+        { type: "sub" },
+        { type: "number", value: 3 },
+        { type: "shl" },
+      ]),
+    ).toEqual([
+      { type: "variable", value: "L0" },
+      { type: "number", value: 16 },
+      { type: "sub" },
+      { type: "number", value: 0xfff8 },
+      { type: "bAND" },
+    ]);
+  });
+
+  test("should not combine SHR X, SUB constant, SHL Y when bit shifts differ", () => {
+    expect(
+      peepholeRPN([
+        { type: "variable", value: "L0" },
+        { type: "number", value: 3 },
+        { type: "shr" },
+        { type: "number", value: 2 },
+        { type: "sub" },
+        { type: "number", value: 2 },
+        { type: "shl" },
+      ]),
+    ).toEqual([
+      { type: "variable", value: "L0" },
+      { type: "number", value: 3 },
+      { type: "shr" },
+      { type: "number", value: 2 },
+      { type: "sub" },
+      { type: "number", value: 2 },
+      { type: "shl" },
+    ]);
+  });
+
+  test("should clear lower N bits replacing SHR N, SHL N", () => {
+    expect(
+      peepholeRPN([
+        { type: "variable", value: "L0" },
+        { type: "number", value: 3 },
+        { type: "shr" },
+        { type: "number", value: 3 },
+        { type: "shl" },
+      ]),
+    ).toEqual([
+      { type: "variable", value: "L0" },
+      { type: "number", value: 0xfff8 },
+      { type: "bAND" },
+    ]);
+  });
+
+  test("should not clear lower bits for SHR X, SHL Y when bit shifts differ", () => {
+    expect(
+      peepholeRPN([
+        { type: "variable", value: "L0" },
+        { type: "number", value: 3 },
+        { type: "shr" },
+        { type: "number", value: 2 },
+        { type: "shl" },
+      ]),
+    ).toEqual([
+      { type: "variable", value: "L0" },
+      { type: "number", value: 3 },
+      { type: "shr" },
+      { type: "number", value: 2 },
+      { type: "shl" },
+    ]);
+  });
+});

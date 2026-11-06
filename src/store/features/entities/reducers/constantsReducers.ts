@@ -1,0 +1,152 @@
+import {
+  PayloadAction,
+  CaseReducer,
+  SliceCaseReducers,
+} from "@reduxjs/toolkit";
+import { EntitiesState } from "shared/lib/entities/entitiesTypes";
+import {
+  genEntitySymbol,
+  applyReparentFolderToCollection,
+  applyReparentEntityToCollection,
+} from "shared/lib/entities/entitiesHelpers";
+import { Constant } from "shared/lib/resources/types";
+import { constantsAdapter } from "store/features/entities/adapters";
+import {
+  localConstantSelectTotal,
+  localConstantSelectById,
+} from "store/features/entities/helpers";
+import { v4 as uuid } from "uuid";
+
+type AddConstantPayload = {
+  constantId?: string;
+  name?: string;
+  value?: number;
+};
+
+type PreparedAddConstantPayload = AddConstantPayload & {
+  constantId: string;
+};
+
+const addConstant: CaseReducer<
+  EntitiesState,
+  PayloadAction<PreparedAddConstantPayload>
+> = (state, action) => {
+  const numConstants = localConstantSelectTotal(state);
+  const name = action.payload.name ?? "";
+
+  const newConstant: Constant = {
+    id: action.payload.constantId,
+    name,
+    symbol: genEntitySymbol(
+      state,
+      name ? `const_${name}` : `const_constant_${numConstants + 1}`,
+    ),
+    value: action.payload.value ?? 0,
+  };
+
+  constantsAdapter.addOne(state.constants, newConstant);
+};
+
+const editConstant: CaseReducer<
+  EntitiesState,
+  PayloadAction<{
+    constantId: string;
+    changes: Partial<Constant>;
+  }>
+> = (state, action) => {
+  const constant = localConstantSelectById(state, action.payload.constantId);
+
+  if (!constant) {
+    return;
+  }
+
+  const patch = {
+    ...action.payload.changes,
+    symbol: action.payload.changes.name
+      ? genEntitySymbol(state, `const_${action.payload.changes.name ?? "0"}`)
+      : constant.symbol,
+  };
+
+  constantsAdapter.updateOne(state.constants, {
+    id: action.payload.constantId,
+    changes: patch,
+  });
+};
+
+const renameConstant: CaseReducer<
+  EntitiesState,
+  PayloadAction<{ constantId: string; name: string }>
+> = (state, action) => {
+  const constant = localConstantSelectById(state, action.payload.constantId);
+
+  if (!constant || constant.name === action.payload.name) {
+    return;
+  }
+
+  constantsAdapter.updateOne(state.constants, {
+    id: action.payload.constantId,
+    changes: {
+      name: action.payload.name,
+      symbol: genEntitySymbol(state, `const_${action.payload.name ?? "0"}`),
+    },
+  });
+};
+
+const removeConstant: CaseReducer<
+  EntitiesState,
+  PayloadAction<{
+    constantId: string;
+  }>
+> = (state, action) => {
+  constantsAdapter.removeOne(state.constants, action.payload.constantId);
+};
+
+const reparentConstantsFolder: CaseReducer<
+  EntitiesState,
+  PayloadAction<{
+    fromPath: string;
+    toPath: string;
+  }>
+> = (state, action) => {
+  applyReparentFolderToCollection(
+    state.constants.entities,
+    action.payload.fromPath,
+    action.payload.toPath,
+  );
+};
+
+const reparentConstant: CaseReducer<
+  EntitiesState,
+  PayloadAction<{
+    constantId: string;
+    toPath: string;
+  }>
+> = (state, action) => {
+  applyReparentEntityToCollection(
+    state.constants.entities,
+    action.payload.constantId,
+    action.payload.toPath,
+  );
+};
+
+const constantsReducers = {
+  addConstant: {
+    reducer: addConstant,
+    prepare: (payload: AddConstantPayload = {}) => {
+      return {
+        payload: {
+          ...payload,
+          constantId: payload.constantId ?? uuid(),
+        },
+      };
+    },
+  },
+
+  editConstant,
+  renameConstant,
+  removeConstant,
+  reparentConstantsFolder,
+  reparentConstant,
+} satisfies SliceCaseReducers<EntitiesState>;
+
+export default constantsReducers;

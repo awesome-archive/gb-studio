@@ -1,0 +1,43 @@
+import { lexText, Token as TextToken } from "shared/lib/compiler/lexText";
+import { normalizeVariableId } from "shared/lib/variables/variableIds";
+import {
+  expressionToScriptValue,
+  variableInScriptValue,
+} from "shared/lib/scriptValue/helpers";
+
+/**
+ * Extracts a variable ID from a dialogue token by removing any leading zeros.
+ * @param {TextToken} token - The token to process, expected to be of type 'variable'.
+ * @returns {string | undefined} - The variable ID without leading zeros, or undefined if the token is not of type 'variable'.
+ */
+export const dialogueTokenToVariableId = (token: TextToken) =>
+  token.type === "variable" ? normalizeVariableId(token.variableId) : undefined;
+
+/**
+ * Checks if a given variable ID exists in a dialogue text input.
+ * @param {string} variableId - The ID of the variable to search for in the text (without leading zeros).
+ * @param {string} input - The dialogue text input to search within.
+ * @returns {boolean} - True if the variable ID is found in the text, false otherwise.
+ */
+export const variableInDialogueText = (
+  variableId: string,
+  input: string,
+): boolean => {
+  const textTokens = lexText(input);
+  const isMatch = (token: TextToken) =>
+    dialogueTokenToVariableId(token) === variableId;
+  return textTokens.some(isMatch);
+};
+
+/**
+ * Checks if a given variable ID exists in an expression text input.
+ * @param {string} variableId - The ID of the variable to search for in the expression (without leading zeros).
+ * @param {string} input - The expression text input to search within.
+ * @returns {boolean} - True if the variable ID is found in the expression, false otherwise.
+ */
+export const variableInExpressionText = (
+  variableId: string,
+  input: string,
+): boolean => {
+  return variableInScriptValue(variableId, expressionToScriptValue(input));
+};
